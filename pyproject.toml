@@ -7,11 +7,14 @@ requires-python = ">=3.12"
 dependencies = [
     "argon2-cffi>=25.1.0",
     "assemblyai>=1.5.5",
+    "fastapi-sso>=0.22.0",
     "fastapi[standard]>=0.141.1",
+    "jinja2>=3.1.6",
     "psycopg2>=2.9.13",
     "pydantic[email]>=2.13.5",
     "pyjwt>=2.14.0",
     "python-dotenv>=1.2.3",
     "python-multipart>=0.0.32",
+    "slowapi>=0.1.10",
     "sqlalchemy>=2.0.54",
 ]
