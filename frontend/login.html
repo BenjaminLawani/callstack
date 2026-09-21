@@ -33,7 +33,7 @@
 
     <!-- Left: hero image -->
     <aside class="relative hidden overflow-hidden bg-primary lg:block">
-      <img src="assets/hero.jpg" alt=""
+      <img src="/assets/hero.jpg" alt=""
            class="absolute inset-0 h-full w-full object-cover" />
       <figcaption class="absolute inset-x-0 bottom-0 p-12">
         <p class="max-w-sm text-sm leading-relaxed text-cream/90">
@@ -157,7 +157,7 @@
           localStorage.setItem('access_token', access_token);
           localStorage.setItem('refresh_token', refresh_token);
         } catch {}
-        window.location.href = 'onboarding.html';
+        window.location.href = '/onboarding';
       } catch (err) {
         errorEl.textContent = err.message;
         errorEl.classList.remove('hidden');

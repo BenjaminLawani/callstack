@@ -65,7 +65,7 @@
               <label for="avatar_url" class="block text-sm font-medium text-neutral-800">
                 Avatar URL <span class="font-normal text-neutral-400">(optional)</span>
               </label>
-              <div class="mt-2 flex items-center gap-3">
+              <div class="mwt-2 flex items-center gap-3">
                 <div id="avatar-preview"
                      class="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-neutral-200 bg-cream"></div>
                 <input id="avatar_url" name="avatar_url" type="url" autocomplete="url"
@@ -153,7 +153,7 @@
   <script>
     const store = (() => { try { return localStorage; } catch { return null; } })();
     const token = store?.getItem('access_token');
-    if (!token) window.location.replace('login.html');
+    if (!token) window.location.replace('/login');
 
     const API = '';                    // same origin; set to e.g. 'http://localhost:8000' if served separately
     const DONE_URL = '/';              // where to go after onboarding
@@ -176,7 +176,7 @@
       });
       if (res.status === 401) {
         store?.removeItem('access_token');
-        window.location.replace('login.html');
+        window.location.replace('/login');
         return;
       }
       const data = await res.json().catch(() => ({}));

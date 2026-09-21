@@ -1,0 +1,207 @@
+{% extends "_app.html" %}
+{% set active = 'home' %}
+{% block title %}Home · callstack{% endblock %}
+
+{% block content %}
+<div class="flex min-h-0 flex-1 flex-col">
+
+  <!-- Thread -->
+  <div id="thread" class="flex-1 overflow-y-auto">
+    <div class="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6">
+
+      <!-- Empty state (hidden once the first message is sent) -->
+      <div id="empty" class="flex min-h-[50vh] flex-col items-center justify-center text-center">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-sm font-bold text-white">cs</div>
+        <h1 class="mt-6 text-3xl font-semibold leading-tight tracking-tight">
+          <span id="greeting">Welcome back</span><span id="greeting-name"></span>.
+        </h1>
+        <p class="mt-3 max-w-md text-sm leading-relaxed text-neutral-500">
+          Ask about your pipelines, dig into a failing test case, or start something new.
+        </p>
+
+        <div class="mt-8 grid w-full max-w-lg gap-2 sm:grid-cols-2">
+          <button type="button" data-prompt="Summarize my most recent pipeline run."
+                  class="suggestion rounded-lg border border-neutral-200 bg-white px-4 py-3 text-left text-sm text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+            Summarize my most recent pipeline run
+          </button>
+          <button type="button" data-prompt="Which test cases failed this week, and why?"
+                  class="suggestion rounded-lg border border-neutral-200 bg-white px-4 py-3 text-left text-sm text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+            Which test cases failed this week?
+          </button>
+          <button type="button" data-prompt="Create a new project for our onboarding call flows."
+                  class="suggestion rounded-lg border border-neutral-200 bg-white px-4 py-3 text-left text-sm text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+            Create a new project
+          </button>
+          <button type="button" data-prompt="Walk me through how pipelines and test cases fit together."
+                  class="suggestion rounded-lg border border-neutral-200 bg-white px-4 py-3 text-left text-sm text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+            How do pipelines and test cases fit together?
+          </button>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <ol id="messages" class="space-y-6" aria-live="polite"></ol>
+    </div>
+  </div>
+
+  <!-- Composer -->
+  <div class="shrink-0 bg-gradient-to-t from-white via-white to-transparent px-4 pb-4 pt-2 sm:px-6">
+    <form id="composer" class="mx-auto w-full max-w-2xl" novalidate>
+      <div class="flex items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
+        <label for="prompt" class="sr-only">Message</label>
+        <textarea id="prompt" name="prompt" rows="1" required
+                  class="max-h-48 min-h-[2.5rem] flex-1 resize-none bg-transparent px-2.5 py-2 text-sm leading-relaxed placeholder:text-neutral-400 focus:outline-none"
+                  placeholder="Message callstack…"></textarea>
+        <button id="send" type="submit" disabled
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2 disabled:bg-neutral-200 disabled:text-neutral-400"
+                aria-label="Send message">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 19.5v-15m0 0-6.75 6.75M12 4.5l6.75 6.75" />
+          </svg>
+        </button>
+      </div>
+      <p class="mt-2 text-center text-[11px] text-neutral-400">
+        Enter to send · Shift + Enter for a new line
+      </p>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const thread = document.getElementById('thread');
+  const empty = document.getElementById('empty');
+  const list = document.getElementById('messages');
+  const composer = document.getElementById('composer');
+  const promptEl = document.getElementById('prompt');
+  const sendBtn = document.getElementById('send');
+
+  const history = [];   // { role: 'user' | 'assistant', content }
+  let user = null;
+
+  // ── Greeting with the logged-in username ──────────────────────────────
+  window.currentUser.then((u) => {
+    if (!u) return;
+    user = u;
+    const h = new Date().getHours();
+    document.getElementById('greeting').textContent =
+      h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+    document.getElementById('greeting-name').textContent = `, ${u.username}`;
+  }).catch(() => {});
+
+  // ── Rendering ─────────────────────────────────────────────────────────
+  function avatarFor(role) {
+    const el = document.createElement('div');
+    el.className = 'flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-semibold';
+    if (role === 'assistant') {
+      el.classList.add('bg-primary', 'text-white');
+      el.textContent = 'cs';
+    } else {
+      el.classList.add('bg-cream', 'text-primary');
+      if (user?.avatar_url) {
+        const img = new Image();
+        img.className = 'h-full w-full object-cover';
+        img.alt = '';
+        img.src = user.avatar_url;
+        el.appendChild(img);
+      } else {
+        el.textContent = (user?.username || '?').slice(0, 1).toUpperCase();
+      }
+    }
+    return el;
+  }
+
+  function appendMessage(role, content) {
+    const li = document.createElement('li');
+    li.className = 'flex gap-3' + (role === 'user' ? ' flex-row-reverse' : '');
+
+    const bubble = document.createElement('div');
+    bubble.className = role === 'user'
+      ? 'max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-neutral-100 px-4 py-2.5 text-sm leading-relaxed'
+      : 'max-w-[85%] whitespace-pre-wrap pt-1 text-sm leading-relaxed text-neutral-800';
+    bubble.textContent = content;
+
+    li.append(avatarFor(role), bubble);
+    list.appendChild(li);
+    thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
+    return bubble;
+  }
+
+  function appendTyping() {
+    const li = document.createElement('li');
+    li.className = 'flex gap-3';
+    const dots = document.createElement('div');
+    dots.className = 'flex items-center gap-1 pt-2.5';
+    dots.innerHTML = [0, 150, 300].map((d) =>
+      `<span class="h-1.5 w-1.5 animate-bounce rounded-full bg-neutral-300" style="animation-delay:${d}ms"></span>`
+    ).join('');
+    li.append(avatarFor('assistant'), dots);
+    list.appendChild(li);
+    thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
+    return li;
+  }
+
+  // ── Assistant ─────────────────────────────────────────────────────────
+  // No chat backend yet. Swap the body of this function for
+  //   return (await api('/dashboard/chat', { method: 'POST', body: { messages } })).reply;
+  // once the endpoint exists — the UI won't need to change.
+  async function askAssistant(messages) {
+    await new Promise((r) => setTimeout(r, 700));
+    const last = messages[messages.length - 1]?.content || '';
+    const name = user?.username ? `, ${user.username}` : '';
+    return `Thanks${name} — I heard: "${last}"\n\nI'm not wired to your pipelines yet, but this is where answers about runs, test cases and projects will show up.`;
+  }
+
+  // ── Composer ──────────────────────────────────────────────────────────
+  function autosize() {
+    promptEl.style.height = 'auto';
+    promptEl.style.height = Math.min(promptEl.scrollHeight, 192) + 'px';
+    sendBtn.disabled = !promptEl.value.trim();
+  }
+  promptEl.addEventListener('input', autosize);
+  promptEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      composer.requestSubmit();
+    }
+  });
+
+  let busy = false;
+  async function send(text) {
+    text = text.trim();
+    if (!text || busy) return;
+    busy = true;
+
+    empty.classList.add('hidden');
+    history.push({ role: 'user', content: text });
+    appendMessage('user', text);
+
+    promptEl.value = '';
+    autosize();
+    sendBtn.disabled = true;
+
+    const typing = appendTyping();
+    try {
+      const reply = await askAssistant(history);
+      typing.remove();
+      history.push({ role: 'assistant', content: reply });
+      appendMessage('assistant', reply);
+    } catch (err) {
+      typing.remove();
+      const el = appendMessage('assistant', err.message || 'Something went wrong.');
+      el.classList.add('text-red-600');
+    } finally {
+      busy = false;
+      promptEl.focus();
+    }
+  }
+
+  composer.addEventListener('submit', (e) => { e.preventDefault(); send(promptEl.value); });
+  document.querySelectorAll('.suggestion').forEach((b) =>
+    b.addEventListener('click', () => send(b.dataset.prompt))
+  );
+
+  promptEl.focus();
+</script>
+{% endblock %}

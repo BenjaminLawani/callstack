@@ -39,6 +39,7 @@ from api.common.exceptions import (
 from api.common.security import (
     hash_password,
     verify_password,
+    normalize_email,
     DbSession,
     CurrentUser,
     issue_token_pair
@@ -60,7 +61,8 @@ def login(
     db: DbSession,
     form_data: OAuth2PasswordRequestForm = Depends(),
 ):
-    db_user = db.query(User).filter(User.email == form_data.username).one_or_none()
+    email = normalize_email(form_data.username)
+    db_user = db.query(User).filter(User.email == email).one_or_none()
     if (
         not db_user
         or not db_user.password
@@ -89,10 +91,11 @@ async def google_callback(
         raise InvalidCredentialsException()
     if openid is None or not openid.email:
         raise InvalidCredentialsException()
-
-    db_user = db.query(User).filter(User.email == openid.email).one_or_none()
+    
+    email = normalize_email(openid.email)
+    db_user = db.query(User).filter(User.email == email).one_or_none()
     if db_user is None:
-        db_user = User(email=openid.email, login_method=LoginMethod.GOOGLE)
+        db_user = User(email=email, login_method=LoginMethod.GOOGLE)
         db.add(db_user)
         try:
             db.commit()
@@ -111,11 +114,12 @@ def get_started(
     db: DbSession
 ):
     try:
-        existing_user = db.query(User).filter(User.email == data.email).one_or_none()
+        email = normalize_email(data.email)
+        existing_user = db.query(User).filter(User.email == email).one_or_none()
         if existing_user:
             raise ResourceConflictEzception("User")
         new_user = User(
-            email=data.email,
+            email=email,
             password=hash_password(data.password),
             login_method=LoginMethod.LOCAL,
         )
