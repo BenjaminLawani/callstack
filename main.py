@@ -12,6 +12,7 @@ from api.auth.endpoints import (
     auth_router,
     profile_router
 )
+from api.dashboard.endpoints import dashboard_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -24,20 +25,8 @@ def health():
     return {"ping":"pong"}
 
 @app.get("/", include_in_schema=False)
-def home_page(request: Request):
-    return templates.TemplateResponse(request, "index.html")
-
-@app.get("/pipelines", include_in_schema=False)
-def pipelines_page(request: Request):
-    return templates.TemplateResponse(request, "pipelines.html")
-
-@app.get("/test-cases", include_in_schema=False)
-def test_cases_page(request: Request):
-    return templates.TemplateResponse(request, "test_cases.html")
-
-@app.get("/projects", include_in_schema=False)
-def projects_page(request: Request):
-    return templates.TemplateResponse(request, "projects.html")
+def landing_page(request: Request):
+    return templates.TemplateResponse(request, "landing.html")
 
 @app.get("/login", include_in_schema=False)
 def login_page(request: Request):
@@ -51,3 +40,4 @@ app.mount("/assets", StaticFiles(directory=templates_path / "assets"), name="ass
 
 app.include_router(auth_router)
 app.include_router(profile_router)
+app.include_router(dashboard_router)

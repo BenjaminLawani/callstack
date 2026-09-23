@@ -9,9 +9,15 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
+  <script>
+    // Apply the cached theme before first paint to avoid a flash; the profile
+    // preference re-syncs it once currentUser resolves (see below).
+    try { if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark'); } catch {}
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: {
         extend: {
           colors: {
@@ -38,32 +44,34 @@
       body[data-collapsed="true"] .nav-item { justify-content: center; padding-left: 0; padding-right: 0; }
     }
 
+    html.dark { color-scheme: dark; }
+
     /* Avoid a flash of un-collapsed sidebar before JS runs */
     body:not([data-ready]) #sidebar { transition: none; }
   </style>
   {% block head %}{% endblock %}
 </head>
 
-<body class="min-h-screen bg-white font-sans text-neutral-900 antialiased">
-  <div class="flex min-h-screen">
+<body class="bg-white dark:bg-neutral-900 font-sans text-neutral-900 dark:text-neutral-100 antialiased dark:bg-neutral-950 dark:text-neutral-100">
+  <div class="flex h-screen h-dvh overflow-hidden">
 
     <!-- Mobile backdrop -->
-    <div id="backdrop" class="fixed inset-0 z-30 hidden bg-neutral-900/30 lg:hidden"></div>
+    <div id="backdrop" class="fixed inset-0 z-30 hidden bg-neutral-900/30 dark:bg-black/60 lg:hidden"></div>
 
     <!-- ───────── Sidebar ───────── -->
     <aside id="sidebar"
-           class="fixed inset-y-0 left-0 z-40 flex w-60 -translate-x-full flex-col border-r border-neutral-200 bg-neutral-50 transition-[width,transform] duration-200 ease-out lg:static lg:translate-x-0">
+           class="fixed inset-y-0 left-0 z-40 flex w-60 -translate-x-full flex-col border-r border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 transition-[width,transform] duration-200 ease-out lg:static lg:translate-x-0">
 
       <!-- Brand + collapse -->
       <div class="flex h-14 shrink-0 items-center justify-between px-3">
-        <a href="/" class="sidebar-wide flex items-center gap-2 px-1.5 text-base font-semibold tracking-tight">
+        <a href="/home" class="sidebar-wide flex items-center gap-2 px-1.5 text-base font-semibold tracking-tight">
           <span class="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-white">cs</span>
           callstack
         </a>
-        <a href="/" class="sidebar-narrow mx-auto h-6 w-6 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-white" aria-label="callstack home">cs</a>
+        <a href="/home" class="sidebar-narrow mx-auto h-6 w-6 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-white" aria-label="callstack home">cs</a>
 
         <button id="collapse" type="button"
-                class="sidebar-wide hidden h-8 w-8 items-center lg:flex justify-center rounded-md text-neutral-400 transition hover:bg-neutral-200/60 hover:text-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring"
+                class="sidebar-wide hidden h-8 w-8 items-center lg:flex justify-center rounded-md text-neutral-400 dark:text-neutral-500 transition hover:bg-neutral-200/60 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring"
                 aria-label="Collapse sidebar" title="Collapse sidebar">
           <svg id="collapse-icon" class="h-4 w-4 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="m18.75 4.5-7.5 7.5 7.5 7.5m-6-15L5.25 12l7.5 7.5" />
@@ -74,7 +82,7 @@
       <!-- Nav -->
       <nav class="mt-2 flex-1 space-y-0.5 px-2" aria-label="Main">
         {% set links = [
-          ('home',       '/',           'Home',       'M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25'),
+          ('home',       '/home',       'Home',       'M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25'),
           ('pipelines',  '/pipelines',  'Pipelines',  'm3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z'),
           ('test-cases', '/test-cases', 'Test cases', 'M11.35 3.836c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m8.9-4.414c.376.023.75.05 1.124.08 1.131.094 1.976 1.057 1.976 2.192V16.5A2.25 2.25 0 0 1 18 18.75h-2.25m-7.5-10.5H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V18.75m-7.5-10.5h6.375c.621 0 1.125.504 1.125 1.125v9.375m-8.25-3 1.5 1.5 3-3.75'),
           ('projects',   '/projects',   'Projects',   'M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z'),
@@ -83,8 +91,8 @@
         <a href="{{ href }}" title="{{ label }}"
            {% if active == key %}aria-current="page"{% endif %}
            class="nav-item flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring
-                  {% if active == key %}bg-white text-neutral-900 shadow-sm ring-1 ring-neutral-200{% else %}text-neutral-600 hover:bg-neutral-200/50 hover:text-neutral-900{% endif %}">
-          <svg class="h-[18px] w-[18px] shrink-0 {% if active == key %}text-primary{% else %}text-neutral-400{% endif %}"
+                  {% if active == key %}bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-sm ring-1 ring-neutral-200 dark:ring-neutral-700{% else %}text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200/50 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-neutral-100{% endif %}">
+          <svg class="h-[18px] w-[18px] shrink-0 {% if active == key %}text-primary{% else %}text-neutral-400 dark:text-neutral-500{% endif %}"
                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="{{ icon }}" />
           </svg>
@@ -96,7 +104,7 @@
       <!-- Expand (only visible when collapsed) -->
       <div class="sidebar-narrow justify-center px-2 pb-2">
         <button id="expand" type="button"
-                class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition hover:bg-neutral-200/60 hover:text-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring"
+                class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 dark:text-neutral-500 transition hover:bg-neutral-200/60 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring"
                 aria-label="Expand sidebar" title="Expand sidebar">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="m5.25 4.5 7.5 7.5-7.5 7.5m6-15 7.5 7.5-7.5 7.5" />
@@ -105,17 +113,22 @@
       </div>
 
       <!-- User -->
-      <div class="shrink-0 border-t border-neutral-200 p-2">
-        <div class="nav-item flex items-center gap-3 rounded-lg px-2.5 py-2">
-          <div id="user-avatar"
-               class="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-cream text-xs font-semibold text-primary"
-               aria-hidden="true">·</div>
-          <div class="nav-label min-w-0 flex-1 leading-tight">
-            <p id="user-name" class="truncate text-sm font-medium text-neutral-900">&nbsp;</p>
-            <p id="user-email" class="truncate text-xs text-neutral-400">&nbsp;</p>
-          </div>
+      <div class="shrink-0 border-t border-neutral-200 dark:border-neutral-800 p-2">
+        <div class="nav-item flex items-center gap-1 rounded-lg py-1 pl-1 pr-1">
+          <a href="/settings" title="Settings"
+             {% if active == 'settings' %}aria-current="page"{% endif %}
+             class="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1.5 py-1 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring
+                    {% if active == 'settings' %}bg-white dark:bg-neutral-800 shadow-sm ring-1 ring-neutral-200 dark:ring-neutral-700{% else %}hover:bg-neutral-200/50 dark:hover:bg-neutral-800{% endif %}">
+            <div id="user-avatar"
+                 class="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-cream text-xs font-semibold text-primary"
+                 aria-hidden="true">·</div>
+            <div class="nav-label min-w-0 flex-1 leading-tight">
+              <p id="user-name" class="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">&nbsp;</p>
+              <p id="user-email" class="truncate text-xs text-neutral-400 dark:text-neutral-500">&nbsp;</p>
+            </div>
+          </a>
           <button id="signout" type="button"
-                  class="nav-label flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 transition hover:bg-neutral-200/60 hover:text-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring"
+                  class="nav-label flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 dark:text-neutral-500 transition hover:bg-neutral-200/60 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring"
                   aria-label="Sign out" title="Sign out">
             <svg class="mx-auto h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
@@ -128,9 +141,9 @@
     <!-- ───────── Main ───────── -->
     <div class="flex min-w-0 flex-1 flex-col">
       <!-- Mobile top bar -->
-      <header class="flex h-14 shrink-0 items-center gap-3 border-b border-neutral-200 px-4 lg:hidden">
+      <header class="flex h-14 shrink-0 items-center gap-3 border-b border-neutral-200 dark:border-neutral-800 px-4 lg:hidden">
         <button id="menu" type="button"
-                class="-ml-1 flex h-8 w-8 items-center justify-center rounded-md text-neutral-600 transition hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring"
+                class="-ml-1 flex h-8 w-8 items-center justify-center rounded-md text-neutral-600 dark:text-neutral-400 transition hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring"
                 aria-label="Open menu">
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
@@ -139,7 +152,7 @@
         <a href="/" class="text-base font-semibold tracking-tight">callstack</a>
       </header>
 
-      <main class="flex min-h-0 flex-1 flex-col">
+      <main class="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {% block content %}{% endblock %}
       </main>
     </div>
@@ -200,10 +213,18 @@
     backdrop.addEventListener('click', () => openDrawer(false));
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') openDrawer(false); });
 
+    // ── Theme ─────────────────────────────────────────────────────────────
+    window.applyTheme = function (theme) {
+      const dark = theme === 'dark';
+      document.documentElement.classList.toggle('dark', dark);
+      store?.setItem('theme', dark ? 'dark' : 'light');
+    };
+
     // ── Sign out ──────────────────────────────────────────────────────────
     document.getElementById('signout').addEventListener('click', () => {
       store?.removeItem('access_token');
       store?.removeItem('refresh_token');
+      store?.removeItem('theme');
       window.location.replace('/login');
     });
 
@@ -218,7 +239,15 @@
       ]);
       if (!profile) return null;
 
-      const user = { username: profile.username, email: me?.email || '', avatar_url: profile.avatar_url || '' };
+      const user = {
+        username: profile.username,
+        email: me?.email || '',
+        login_method: me?.login_method || 'local',
+        avatar_url: profile.avatar_url || '',
+        preferences: profile.preferences || {},
+      };
+
+      applyTheme(user.preferences.theme);
 
       document.getElementById('user-name').textContent = user.username;
       document.getElementById('user-email').textContent = user.email;

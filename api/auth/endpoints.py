@@ -139,6 +139,25 @@ def get_started(
         raise InternalServerErrorException()
 
 
+@auth_router.post("/change-password", response_model=dict)
+def change_password(
+    data: PasswordUpdate,
+    db: DbSession,
+    user: CurrentUser,
+):
+    if user.login_method != LoginMethod.LOCAL or not user.password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This account signs in with Google and has no password",
+        )
+    if not verify_password(data.old_password, user.password):
+        raise InvalidCredentialsException()
+
+    user.password = hash_password(data.new_password)
+    db.commit()
+
+    return {"message": "Password updated"}
+
 @auth_router.get("/", response_model=UserCreateResponse)
 def get_me(
     request: Request,
@@ -201,7 +220,11 @@ def update_profile(
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(profile, key, value)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise ResourceConflictEzception("Username")
     db.refresh(profile)
 
     return {"message": "Profile updated"}

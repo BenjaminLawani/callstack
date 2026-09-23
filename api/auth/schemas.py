@@ -49,10 +49,11 @@ class UserProfileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class UserProfileUpdate(BaseModel):
+    username: Optional[str] = Field(default=None, min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
     preferences: Optional[dict] = None
     avatar_url: Optional[str] = None
 
 class PasswordUpdate(BaseModel):
     old_password: str
-    new_password: str
+    new_password: str = Field(min_length=8)
 

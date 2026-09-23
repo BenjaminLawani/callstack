@@ -157,7 +157,9 @@
           localStorage.setItem('access_token', access_token);
           localStorage.setItem('refresh_token', refresh_token);
         } catch {}
-        window.location.href = '/onboarding';
+        // Users who already have a profile skip onboarding
+        const profile = await fetch('/profiles/', { headers: { 'Authorization': `Bearer ${access_token}` } });
+        window.location.href = profile.ok ? '/home' : '/onboarding';
       } catch (err) {
         errorEl.textContent = err.message;
         errorEl.classList.remove('hidden');

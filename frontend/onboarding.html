@@ -156,14 +156,13 @@
     if (!token) window.location.replace('/login');
 
     const API = '';                    // same origin; set to e.g. 'http://localhost:8000' if served separately
-    const DONE_URL = '/';              // where to go after onboarding
+    const DONE_URL = '/home';           // where to go after onboarding
 
     const forms = {
       1: document.getElementById('step-profile'),
       2: document.getElementById('step-preferences'),
     };
     const indicator = document.getElementById('step-indicator');
-    let profileExists = false;
 
     async function api(path, { method = 'GET', body } = {}) {
       const res = await fetch(API + path, {
@@ -237,10 +236,9 @@
         try {
           await api('/profiles/', { method: 'POST', body });
         } catch (err) {
-          // Profile already exists for this user → don't block, just move on
-          if (err.status !== 409 || !profileExists) throw err;
+          // Profile already exists (e.g. double submit) → don't block, just move on
+          if (err.status !== 409) throw err;
         }
-        profileExists = true;
         showStep(2);
       });
     });
@@ -255,25 +253,18 @@
           push_notifications: fd.get('push_notifications') === 'on',
         };
         await api('/profiles/', { method: 'PATCH', body: { preferences } });
+        store?.setItem('theme', preferences.theme);
         window.location.replace(DONE_URL);
       });
     });
 
     document.getElementById('back').addEventListener('click', () => showStep(1));
 
-    // Resume: if a profile already exists, prefill and skip to preferences
+    // Users who already have a profile don't need onboarding
     (async () => {
       try {
         const profile = await api('/profiles/');
-        if (!profile) return;
-        profileExists = true;
-        forms[1].username.value = profile.username || '';
-        forms[1].avatar_url.value = profile.avatar_url || '';
-        avatarInput.dispatchEvent(new Event('input'));
-        const prefs = profile.preferences || {};
-        if (prefs.theme) forms[2].theme.value = prefs.theme;
-        if ('push_notifications' in prefs) forms[2].push_notifications.checked = !!prefs.push_notifications;
-        showStep(2);
+        if (profile) window.location.replace(DONE_URL);
       } catch (err) {
         if (err.status !== 404) setError(forms[1], err.message);
       }

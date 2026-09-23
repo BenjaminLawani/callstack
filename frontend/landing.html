@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>callstack — Put every call under test</title>
+  <meta name="description" content="Chain calls into pipelines, define what a good call looks like, and check every run against it." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── Tokens ─────────────────────────────────────────────────────────── */
+    :root {
+      --accent:        #1E3FBF;
+      --accent-hover:  #1A37A8;
+      --accent-300:    #B7C3F0;
+      --accent-100:    #EEF1FB;
+      --cream:         #F3EBDA;
+
+      --text-base:     #292929;
+      --text-default:  #707070;
+      --text-muted:    #8f8f8f;
+      --text-faint:    #d1d1d1;
+
+      --border:        #f4f4f4;
+      --border-dashed: #ebebeb;
+      --grid:          #f4f4f4;
+      --surface:       #fdfdfd;
+      --faint:         #f7f7f7;
+      --base:          #fff;
+      --success:       #25855a;
+      --success-bg:    #edf8f2;
+
+      --sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
+      --page: 1200px;
+      --header: 80px;
+      --header-compact: 56px;
+      --ease: cubic-bezier(.6,.6,0,1);
+      --snap: cubic-bezier(.2,.9,.2,1);
+
+      --shadow-elevation: 0 24px 32px -12px rgba(0,0,0,.03), 0 6px 12px 0 rgba(0,0,0,.01), 0 3px 6px 0 rgba(0,0,0,.01), 0 0 0 1px rgba(0,0,0,.04);
+      --shadow-primary: inset 0 1px 0 0 rgba(255,255,255,.18), 0 6px 10px -4px rgba(30,63,191,.28), 0 2px 4px -1px rgba(30,63,191,.14), 0 1px 1px -.5px rgba(30,63,191,.12);
+    }
+
+    /* ── Reset ──────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--base);
+      color: var(--text-base);
+      font: 300 16px/24px var(--sans);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    a { color: inherit; text-decoration: none; }
+    h1, h2, h3, p { margin: 0; }
+    button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+    svg { display: block; }
+    code { font-family: var(--mono); }
+
+    /* The full-bleed dashed rails are 100vw pseudo-elements; clip them here so they never widen the page. */
+    main, .footer { overflow-x: clip; }
+    main { position: relative; }
+    main::before {
+      position: absolute; z-index: 0; top: 0; bottom: 0; left: 50%;
+      width: min(var(--page), 100%);
+      border-inline: 1px dashed var(--border-dashed);
+      content: ""; transform: translateX(-50%); pointer-events: none;
+    }
+
+    /* ── Page rails ─────────────────────────────────────────────────────── */
+    .page {
+      position: relative; width: min(var(--page), 100%); margin-inline: auto;
+      border-inline: 1px solid var(--border);
+    }
+    .page-label {
+      position: absolute; top: 29px; width: max-content;
+      color: var(--text-faint); font-family: var(--mono); font-size: 10px;
+      letter-spacing: .08em; text-transform: uppercase; user-select: none;
+    }
+    .page-label.left { right: calc(100% + 40px); }
+    .section { position: relative; scroll-margin-top: var(--header); border-bottom: 1px solid var(--border); }
+    .section-grid {
+      background-color: var(--surface);
+      background-image: linear-gradient(var(--grid) .5px, transparent .5px), linear-gradient(90deg, var(--grid) .5px, transparent .5px);
+      background-size: 80px 80px;
+    }
+    .dashed-wide::before, .dashed-wide::after {
+      position: absolute; top: -1px; width: 100vw; height: 1px;
+      background: repeating-linear-gradient(90deg, var(--border-dashed) 0 3px, transparent 3px 8px);
+      content: "";
+    }
+    .dashed-wide::before { right: 100%; }
+    .dashed-wide::after  { left: 100%; }
+
+    /* ── Buttons ────────────────────────────────────────────────────────── */
+    .button {
+      position: relative; isolation: isolate;
+      display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 8px;
+      padding: 10px; border: 0; border-radius: 999px;
+      font-size: 14px; font-weight: 400; line-height: 20px; white-space: nowrap;
+      transition: all .2s var(--ease);
+    }
+    .button span { position: relative; z-index: 1; padding-inline: 6px; }
+    .button svg { position: relative; z-index: 1; width: 16px; height: 16px; }
+    .button:active { transform: translateY(1px) scale(.98); }
+    .button-primary { background: var(--accent); color: #fff; box-shadow: var(--shadow-primary); }
+    .button-primary:hover { background: var(--accent-hover); }
+    .button-primary:focus-visible { outline: 0; box-shadow: var(--shadow-primary), 0 0 0 2.5px var(--base), 0 0 0 3.5px var(--accent); }
+    .button-secondary {
+      background: var(--base);
+      box-shadow: 0 4px 8px -2px rgba(0,0,0,.02), 0 2px 4px -1px rgba(0,0,0,.02), 0 0 0 1px rgba(0,0,0,.05);
+    }
+    .button-secondary:hover { box-shadow: 0 8px 12px -2px rgba(0,0,0,.03), 0 4px 8px -2px rgba(0,0,0,.03), 0 0 0 1px rgba(0,0,0,.07); }
+    .button-secondary:focus-visible { outline: 0; box-shadow: 0 0 0 1px rgba(0,0,0,.04), 0 0 0 2.5px var(--base), 0 0 0 3.5px var(--accent); }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    .header-spacer { height: var(--header); }
+    .header {
+      position: fixed; inset: 0 0 auto; z-index: 50;
+      height: var(--header);
+      background: rgba(255,255,255,.96);
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      transition: height .18s var(--snap);
+    }
+    .header::after {
+      position: absolute; inset: auto 0 0; height: 1px;
+      background: repeating-linear-gradient(90deg, var(--border-dashed) 0 3px, transparent 3px 8px);
+      content: "";
+    }
+    .header-inner {
+      position: relative; width: min(var(--page), 100%); height: 100%;
+      margin-inline: auto; padding: 0 40px;
+      display: flex; align-items: center;
+      border-inline: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    }
+    .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 500; font-size: 16px; letter-spacing: -.01em; }
+    .brand-mark {
+      display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px;
+      background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; letter-spacing: 0;
+      transition: transform .18s var(--snap);
+    }
+    .brand-product {
+      padding-left: 10px; border-left: 1px solid var(--border);
+      font-size: 14px; font-weight: 300; color: var(--text-default);
+      transition: opacity .12s var(--ease);
+    }
+    .nav { display: flex; gap: 2px; margin-left: 28px; transition: opacity .12s var(--ease); }
+    .nav a { padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 400; }
+    .nav a:hover { background: var(--faint); }
+    .header-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+    /* Scrolled: snap to logo + sign in only */
+    .header.is-scrolled { height: var(--header-compact); }
+    .header.is-scrolled .header-inner { border-bottom-color: var(--border-dashed); }
+    .header.is-scrolled .nav,
+    .header.is-scrolled .brand-product { display: none; }
+    .header.is-scrolled .brand-mark { transform: scale(.92); }
+    .header.is-scrolled .header-actions .button { min-height: 34px; padding: 7px 8px; font-size: 13px; }
+
+    /* ── Hero ───────────────────────────────────────────────────────────── */
+    .hero { position: relative; min-height: 600px; overflow: hidden; }
+    .hero-copy {
+      position: absolute; z-index: 3; bottom: 88px; left: 80px; width: 480px;
+      display: flex; flex-direction: column; align-items: flex-start;
+    }
+    .hero-eyebrow, .eyebrow {
+      margin-bottom: 24px; color: var(--text-faint);
+      font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: .04em; line-height: 16px; text-transform: uppercase;
+    }
+    .hero-eyebrow span { word-spacing: 4.75px; }
+    .hero-eyebrow b, .eyebrow b { color: var(--accent); font-weight: inherit; }
+    .hero h1 { max-width: 560px; font-size: 56px; font-weight: 400; letter-spacing: -.025em; line-height: 60px; text-wrap: balance; }
+    .hero-copy > p { max-width: 460px; margin-top: 24px; color: var(--text-default); font-size: 19px; line-height: 1.25; text-wrap: pretty; }
+    .hero-actions { display: flex; gap: 12px; margin-top: 32px; }
+
+    /* Right-hand run preview */
+    .run-ui { position: absolute; top: 50%; right: 80px; z-index: 2; width: 480px; transform: translateY(-50%); }
+    .sequence-block {
+      position: relative; padding: 18px 20px; border: 1px solid var(--border); border-radius: 8px; background: var(--base);
+      animation: sequence-in .45s cubic-bezier(.16,1,.3,1) both;
+    }
+    .sequence-block + .sequence-block { margin-top: 12px; }
+    .sequence-block:nth-child(2) { animation-delay: .85s; }
+    .sequence-block:nth-child(3) { animation-delay: 1.55s; }
+    .sequence-head {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 13px;
+      color: var(--text-muted); font-family: var(--mono); font-size: 10px; letter-spacing: .04em; line-height: 16px; text-transform: uppercase;
+    }
+    .sequence-head span:last-child { margin-left: auto; }
+    .sequence-running { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1s ease-in-out 2; }
+    .command-pill {
+      min-width: 0; padding: 6px 8px 6px 12px; display: flex; align-items: center; gap: 7px;
+      border: 1px solid var(--border); border-radius: 999px; background: var(--base);
+      font-family: var(--mono); font-size: 13px; line-height: 24px;
+    }
+    .command-pill .prompt { color: var(--text-muted); user-select: none; }
+    .command-pill .method { color: var(--accent); font-weight: 500; user-select: none; }
+    .command-pill code { min-width: 0; flex: 1; overflow: hidden; color: #171717; font: inherit; text-overflow: ellipsis; white-space: nowrap; }
+    .command-pill .copy-icon { border: 0; border-radius: 50%; }
+    .sequence-status { display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: center; }
+    .result-check { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: var(--success-bg); color: var(--success); font-size: 13px; }
+    .sequence-status strong { display: block; font-size: 15px; font-weight: 400; }
+    .sequence-status small { display: block; margin-top: 2px; color: var(--text-muted); font-size: 11px; line-height: 16px; }
+    .sequence-url { display: flex; align-items: center; gap: 10px; }
+    .sequence-url code { min-width: 0; flex: 1; overflow-wrap: anywhere; color: var(--accent); font-size: 12px; line-height: 20px; }
+
+    .copy-icon {
+      width: 28px; height: 28px; flex: 0 0 auto; display: grid; place-items: center;
+      border: 1px solid var(--border); border-radius: 6px; background: var(--base); color: var(--text-muted);
+    }
+    .copy-icon svg { width: 13px; }
+    .copy-icon.copied { color: var(--success); }
+
+    /* ── Benefits ───────────────────────────────────────────────────────── */
+    .benefits { display: grid; grid-template-columns: repeat(3, 1fr); }
+    .benefit { position: relative; min-height: 262px; padding: 40px; background: var(--base); }
+    .benefit + .benefit { border-left: 1px solid var(--border); }
+    .benefit svg { width: 24px; height: 24px; color: var(--accent); }
+    .benefit h3 { margin-top: 28px; font-size: 18px; font-weight: 400; }
+    .benefit p { margin-top: 8px; color: var(--text-default); font-size: 14px; line-height: 1.3; text-wrap: balance; }
+
+    /* ── Section intro + architecture ───────────────────────────────────── */
+    .section-intro {
+      min-height: 400px; padding: 80px; display: grid; grid-template-columns: 560px 1fr; gap: 80px; align-items: start; background: var(--base);
+    }
+    .section-intro .eyebrow { margin-bottom: 0; }
+    .section-intro h2 { max-width: 560px; margin-top: 24px; font-size: 52px; font-weight: 400; letter-spacing: -.025em; line-height: 1.08; text-wrap: balance; }
+    .section-intro h2 .muted { color: var(--text-muted); }
+    .section-intro h2 .accent { color: var(--accent); }
+    .section-intro .copy { max-width: 500px; padding-top: 106px; color: var(--text-base); font-size: 17px; line-height: 1.42; text-wrap: pretty; }
+    .section-intro .copy p + p { margin-top: 16px; }
+
+    .architecture-stage { padding: 0 40px 40px; }
+    .architecture {
+      position: relative; min-height: 560px; padding: 56px 48px 40px;
+      display: flex; flex-direction: column; justify-content: center;
+      border: 1px solid var(--border); background: var(--base); box-shadow: var(--shadow-elevation);
+    }
+    .architecture::before, .architecture::after {
+      position: absolute; z-index: 2; width: 14px; height: 14px;
+      border: 1px solid #ccc; border-radius: 3px; background: var(--base); content: "";
+    }
+    .architecture::before { top: -7px; left: -7px; }
+    .architecture::after  { right: -7px; bottom: -7px; }
+    .architecture-labels {
+      display: grid; grid-template-columns: 1fr 1.15fr 1.4fr;
+      color: var(--text-muted); font-family: var(--mono); font-size: 12px; letter-spacing: .04em; text-align: center; text-transform: uppercase;
+    }
+    .architecture-labels span { justify-self: center; padding: 3px 8px; background: #f4f4f4; }
+    .architecture-labels span:nth-child(2) { background: var(--accent-100); color: var(--accent); }
+    .architecture-flow {
+      margin-top: 44px; display: grid; align-items: center;
+      grid-template-columns: minmax(130px, 1fr) 64px minmax(150px, 1.15fr) 64px minmax(230px, 1.4fr);
+    }
+    .arch-node {
+      position: relative; min-height: 112px; padding: 18px; display: flex; flex-direction: column; justify-content: center;
+      border: 1px solid var(--border); background: var(--base);
+    }
+    .arch-node small { color: var(--text-muted); font-family: var(--mono); font-size: 10px; letter-spacing: .04em; line-height: 16px; text-transform: uppercase; }
+    .arch-node strong { margin-top: 9px; font-size: 16px; font-weight: 400; }
+    .arch-node span { margin-top: 5px; color: var(--text-default); font-size: 12px; line-height: 18px; }
+    .arch-node.edge { border-color: var(--accent-300); background: #F7F8FE; }
+    .arch-node.edge small, .arch-node.edge strong { color: var(--accent); }
+    .arch-route {
+      position: relative; height: 1px; overflow: visible;
+      background: repeating-linear-gradient(90deg, var(--accent) 0 4px, transparent 4px 8px);
+      animation: march .75s linear infinite;
+    }
+    .arch-route::after {
+      position: absolute; top: -3px; right: 0; width: 6px; height: 6px;
+      border-top: 1px solid var(--accent); border-right: 1px solid var(--accent); content: ""; transform: rotate(45deg);
+    }
+    .private-zone { padding: 20px; border: 1px dashed #ccc; background: rgba(253,253,252,.9); }
+    .private-zone > small { display: block; margin-bottom: 12px; color: var(--text-muted); font-family: var(--mono); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+    .private-pair { display: grid; grid-template-columns: 1fr 18px 1fr; align-items: center; }
+    .private-pair .arch-node { min-height: 86px; padding: 13px; }
+    .local-link { height: 1px; background: var(--text-faint); }
+    .architecture-meta { margin-top: 48px; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--border); background: var(--base); }
+    .architecture-meta div { padding: 12px 16px; display: flex; align-items: center; gap: 9px; color: var(--text-default); font-size: 11px; }
+    .architecture-meta div + div { border-left: 1px solid var(--border); }
+    .architecture-meta i { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+
+    /* ── Code section ───────────────────────────────────────────────────── */
+    .kicker {
+      position: relative; display: inline-block; padding-inline: 6px;
+      background: var(--accent); color: #fff;
+      font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: .04em; line-height: 16px; text-transform: uppercase;
+    }
+    .kicker::after, .kicker::before { position: absolute; left: calc(100% + 2px); top: 2px; width: 2px; height: 12px; background: var(--accent-300); content: ""; }
+    .kicker::before { left: calc(100% + 6px); top: 4px; height: 8px; background: var(--cream); }
+
+    .code-layout { min-height: 560px; padding: 40px; display: grid; grid-template-columns: 1fr 2fr; gap: 40px; }
+    .code-copy { padding: 40px 0; }
+    .code-copy h2 { margin-top: 24px; font-size: 48px; font-weight: 400; letter-spacing: -.025em; line-height: 1.08; }
+    .code-copy > p { margin-top: 24px; color: var(--text-default); line-height: 1.3; }
+    .code-copy > p code { padding: 2px 5px; border: 1px solid var(--border); border-radius: 5px; background: var(--base); font-size: 12px; }
+    .code-notes { margin-top: 30px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .code-notes span { padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--base); color: var(--text-muted); font-family: var(--mono); font-size: 9px; }
+    .code-card { align-self: center; overflow: hidden; background: var(--base); box-shadow: var(--shadow-elevation); }
+    .code-bar { height: 40px; display: flex; align-items: center; border-bottom: 1px solid var(--border); font-size: 13px; line-height: 20px; }
+    .code-bar > span:first-child { position: relative; align-self: stretch; padding: 10px 16px; color: var(--accent); }
+    .code-bar > span:first-child::after { position: absolute; right: 0; bottom: 0; left: 0; height: 1px; background: var(--accent); content: ""; }
+    .code-bar > span:last-of-type { margin-left: auto; color: var(--text-muted); font-family: var(--mono); font-size: 10px; }
+    .code-bar .copy-icon { width: 40px; height: 40px; margin-left: 8px; border-block: 0; border-right: 0; border-radius: 0; color: var(--accent); }
+    .code-command { min-height: 80px; padding: 20px 28px; display: flex; align-items: flex-start; gap: 12px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 13px; line-height: 24px; }
+    .code-command .prompt { color: var(--text-faint); }
+    .code-command code { color: var(--accent); overflow-wrap: anywhere; white-space: pre-wrap; }
+    .code-output { min-height: 152px; padding: 24px 28px; font-family: var(--mono); font-size: 13px; line-height: 24px; }
+    .output-status { display: flex; align-items: center; gap: 8px; color: var(--success); }
+    .output-status i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 4px var(--success-bg); }
+    .output-url { display: block; margin-top: 16px; color: var(--accent); overflow-wrap: anywhere; }
+    .output-json { margin: 16px 0 0; font-family: var(--mono); font-size: 13px; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .output-json .k { color: var(--text-muted); }
+    .output-json .s { color: var(--accent); }
+    .output-json .n { color: var(--text-base); }
+    .output-meta { margin-top: 8px; color: var(--text-muted); font-size: 11px; }
+
+    /* ── Steps ──────────────────────────────────────────────────────────── */
+    .steps-head { padding: 80px 80px 40px; }
+    .steps-head h2 { max-width: 640px; margin-top: 24px; font-size: 52px; font-weight: 400; letter-spacing: -.025em; line-height: 1.08; text-wrap: balance; }
+    .steps-stage { padding: 40px; border-top: 1px solid var(--border); }
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--base); box-shadow: var(--shadow-elevation); }
+    .step { min-width: 0; min-height: 280px; padding: 40px; background: var(--base); }
+    .step + .step { border-left: 1px solid var(--border); }
+    .step-num { color: var(--accent); font-family: var(--mono); font-size: 10px; letter-spacing: .04em; }
+    .step h3 { margin-top: 32px; font-size: 18px; font-weight: 400; }
+    .step p { min-height: 42px; margin-top: 10px; color: var(--text-default); font-size: 13px; }
+    .command { margin-top: 24px; display: flex; align-items: center; border: 1px solid var(--border); background: var(--surface); font-family: var(--mono); font-size: 12px; line-height: 20px; }
+    .command .prompt { padding: 14px 0 14px 16px; color: var(--text-faint); }
+    .command .method { padding: 14px 0 14px 16px; color: var(--accent); font-weight: 500; user-select: none; }
+    .command code { min-width: 0; flex: 1; padding: 14px 12px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .command .copy-icon { width: 40px; height: 48px; border-block: 0; border-right: 0; border-radius: 0; color: var(--accent); }
+
+    /* ── CTA ────────────────────────────────────────────────────────────── */
+    .cta-stage { width: min(1480px, 100%); margin: 80px auto 0; padding: 40px; border-block: 1px solid var(--border); }
+    .cta {
+      position: relative; width: min(var(--page), 100%); min-height: 520px; margin-inline: auto; padding: 112px 240px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden;
+      text-align: center; background: var(--base); box-shadow: var(--shadow-elevation);
+    }
+    .cta::before, .cta::after {
+      position: absolute; top: 54%; left: 50%; width: 420px; aspect-ratio: 1;
+      border: 1px solid rgba(30,63,191,.2); border-radius: 50%; content: "";
+      transform: translate(-50%,-50%) scale(.72);
+      animation: cta-ripple 5s cubic-bezier(.2,.6,.3,1) infinite; pointer-events: none;
+    }
+    .cta::after { animation-delay: -2.5s; }
+    .cta .kicker { z-index: 1; }
+    .cta h2 { position: relative; z-index: 1; max-width: 1080px; margin-top: 24px; font-size: 56px; font-weight: 400; letter-spacing: -.025em; line-height: 1.07; }
+    .cta p { position: relative; z-index: 1; max-width: 480px; margin-top: 24px; color: var(--text-default); font-size: 17px; line-height: 1.42; }
+    .cta-actions { position: relative; z-index: 1; display: flex; gap: 8px; margin-top: 40px; }
+
+    /* ── Footer ─────────────────────────────────────────────────────────── */
+    .footer { padding: 32px 40px 24px; background: var(--base); }
+    .footer-inner { width: min(var(--page), 100%); margin-inline: auto; }
+    .footer-top { display: flex; align-items: flex-start; gap: 64px; }
+    .footer-groups { width: min(100%, 792px); margin-left: auto; display: grid; grid-template-columns: repeat(3, minmax(0, 264px)); gap: 32px; }
+    .footer-section strong { display: block; padding-bottom: 12px; color: var(--text-muted); font-size: 14px; font-weight: 400; line-height: 1; }
+    .footer-section a { display: block; padding-block: 8px; font-size: 16px; line-height: 1; transition: color .2s; }
+    .footer-section a:hover { color: var(--text-muted); }
+    .footer-bottom { position: relative; margin-top: 56px; padding-top: 25px; display: flex; align-items: center; justify-content: space-between; gap: 24px; color: var(--text-muted); font-size: 13px; }
+    .footer-bottom::before {
+      position: absolute; top: 0; left: 50%; width: 100vw; height: 1px;
+      background: repeating-linear-gradient(90deg, var(--border-dashed) 0 16px, transparent 16px 32px);
+      content: ""; transform: translateX(-50%);
+    }
+    .footer-legal { display: flex; flex-wrap: wrap; justify-content: flex-end; }
+    .footer-legal a { transition: color .2s; }
+    .footer-legal a:hover { color: var(--text-base); }
+    .footer-legal a + a::before { margin-inline: 9px; content: "|"; color: var(--text-faint); }
+
+    /* ── Animation ──────────────────────────────────────────────────────── */
+    @keyframes sequence-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+    @keyframes march { to { background-position: 8px 0; } }
+    @keyframes cta-ripple { 0% { opacity: 0; transform: translate(-50%,-50%) scale(.72); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%,-50%) scale(2.1); } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; transition-duration: .001s !important; }
+      html { scroll-behavior: auto; }
+    }
+
+    /* ── Responsive ─────────────────────────────────────────────────────── */
+    @media (max-width: 1120px) {
+      .page-label, .nav { display: none; }
+      .hero { height: auto; min-height: 900px; }
+      .hero-copy { top: 64px; bottom: auto; left: 40px; width: calc(100% - 80px); }
+      .run-ui { top: 450px; right: 40px; left: 40px; width: auto; transform: none; }
+      .section-intro { grid-template-columns: 1fr 1fr; }
+      .code-layout { grid-template-columns: 1fr; padding-bottom: 80px; }
+      .cta { padding-inline: 80px; }
+      .footer-groups { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 850px) {
+      .section-intro { padding: 64px 40px; gap: 40px; grid-template-columns: 1fr; }
+      .section-intro .copy { padding-top: 0; }
+      .architecture-labels { display: none; }
+      .architecture-flow { margin-top: 0; grid-template-columns: 1fr; gap: 12px; }
+      .arch-route { width: 1px; height: 24px; margin-inline: auto; background: repeating-linear-gradient(180deg, var(--accent) 0 4px, transparent 4px 8px); animation: none; }
+      .arch-route::after { top: auto; right: -3px; bottom: 0; transform: rotate(135deg); }
+      .private-pair { grid-template-columns: 1fr; gap: 10px; }
+      .local-link { width: 1px; height: 18px; margin-inline: auto; }
+      .architecture-meta { grid-template-columns: 1fr; }
+      .architecture-meta div + div { border-top: 1px solid var(--border); border-left: 0; }
+      .benefits, .steps { grid-template-columns: 1fr; }
+      .benefit + .benefit, .step + .step { border-left: 0; border-top: 1px solid var(--border); }
+      .benefit, .step { min-height: 0; }
+      .steps-head { padding: 64px 40px 32px; }
+      .steps-head h2, .section-intro h2, .code-copy h2, .cta h2 { font-size: 40px; }
+      .footer-top { flex-direction: column; gap: 40px; }
+      .footer-groups { width: 100%; margin-left: 0; grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 700px) {
+      .header-inner { padding: 0 16px; }
+      .brand-product { display: none; }
+      .header-actions .button { min-height: 36px; padding: 8px 12px; font-size: 12px; }
+      .page { border-inline: 0; }
+      .hero { min-height: 0; padding-bottom: 40px; }
+      .hero-copy { position: static; width: auto; padding: 48px 16px 0; }
+      .hero h1 { font-size: 40px; line-height: 44px; }
+      .hero-copy > p { font-size: 17px; }
+      .run-ui { position: static; margin: 40px 16px 0; }
+      .section-intro { padding: 48px 16px; }
+      .architecture-stage, .steps-stage, .code-layout, .cta-stage { padding: 16px; }
+      .architecture { padding: 24px 16px; min-height: 0; }
+      .benefit, .step { padding: 28px 16px; }
+      .steps-head { padding: 48px 16px 24px; }
+      .code-copy { padding: 16px 0; }
+      .cta { padding: 64px 24px; min-height: 0; }
+      .cta h2, .steps-head h2, .section-intro h2, .code-copy h2 { font-size: 32px; }
+      .cta-actions, .hero-actions { flex-wrap: wrap; }
+      .footer { padding: 32px 16px 24px; }
+      .footer-groups { grid-template-columns: 1fr; }
+      .footer-bottom { flex-direction: column; align-items: flex-start; }
+      .footer-legal { justify-content: flex-start; }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- ───────── Header ───────── -->
+  <header class="header" id="header">
+    <div class="header-inner">
+      <a class="brand" href="/" aria-label="callstack home">
+        <span class="brand-mark">cs</span>
+        <span>callstack</span>
+        <span class="brand-product">Call testing</span>
+      </a>
+      <nav class="nav" aria-label="Primary">
+        <a href="#overview">Overview</a>
+        <a href="#how">How it works</a>
+        <a href="#install">Get started</a>
+        <a href="/docs">API</a>
+      </nav>
+      <div class="header-actions">
+        <a class="button button-primary" href="/login"><span>Sign in</span></a>
+      </div>
+    </div>
+  </header>
+  <div class="header-spacer"></div>
+
+  <main>
+    <!-- ───────── Hero ───────── -->
+    <section class="page section hero" id="overview">
+      <span class="page-label left">callstack</span>
+
+      <div class="hero-copy">
+        <p class="hero-eyebrow"><span>01 ·</span> <b>Call pipelines</b></p>
+        <h1>Put every call under test</h1>
+        <p>Chain calls into pipelines, define what a good call looks like, and check every run against it. Replay, compare and monitor — without the noise.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="/login"><span>Start for free</span></a>
+          <a class="button button-secondary" href="/docs"><span>API reference</span></a>
+        </div>
+      </div>
+
+      <div class="run-ui" aria-label="Pipeline run preview">
+        <div class="sequence-block">
+          <div class="sequence-head"><i class="sequence-running"></i><span>Run</span><span>Pipeline</span></div>
+          <div class="command-pill">
+            <span class="method">POST</span>
+            <code>/pipelines/onboarding-flow/runs</code>
+            <button class="copy-icon" type="button" data-copy="POST /pipelines/onboarding-flow/runs" aria-label="Copy endpoint">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 10.5V3.5a1 1 0 0 1 1-1H10.5" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="sequence-block">
+          <div class="sequence-head"><span>Check</span><span>Test cases</span></div>
+          <div class="sequence-status">
+            <span class="result-check">✓</span>
+            <div><strong>12 of 12 test cases passed</strong><small>greeting · intent · handoff · 0 regressions</small></div>
+          </div>
+        </div>
+        <div class="sequence-block">
+          <div class="sequence-head"><span>Trace</span><span>Run URL</span></div>
+          <div class="sequence-url">
+            <code>https://app.callstack.dev/runs/run_8f3k2qv</code>
+            <button class="copy-icon" type="button" data-copy="https://app.callstack.dev/runs/run_8f3k2qv" aria-label="Copy run URL">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 10.5V3.5a1 1 0 0 1 1-1H10.5" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────── Benefits ───────── -->
+    <section class="page section dashed-wide">
+      <div class="benefits">
+        <div class="benefit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"/></svg>
+          <h3>Pipelines</h3>
+          <p>Chain calls into runs you can replay, compare and monitor. One run, one trace, every frame.</p>
+        </div>
+        <div class="benefit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+          <h3>Test cases</h3>
+          <p>Define what a good call looks like and check every run against it. Regressions surface before customers do.</p>
+        </div>
+        <div class="benefit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"/></svg>
+          <h3>Projects</h3>
+          <p>Group pipelines and test cases by product, team or customer. Same workflow, whoever owns the call.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────── How it works ───────── -->
+    <section class="page section" id="how">
+      <div class="section-intro">
+        <div>
+          <p class="eyebrow"><b>Trace-first architecture</b></p>
+          <h2>Every call. Every frame. <span class="accent">One trace.</span></h2>
+        </div>
+        <div class="copy">
+          <p>Point a pipeline at a live or recorded call. callstack captures the full exchange and runs each test case against it as it happens.</p>
+          <p>The result is a single trace you can replay, diff against any earlier run, and share with a link — no re-dialing, no log spelunking.</p>
+        </div>
+      </div>
+
+      <div class="architecture-stage">
+        <div class="architecture" aria-label="How callstack fits between your agent and your team">
+          <div class="architecture-labels">
+            <span>Your agent</span>
+            <span>callstack</span>
+            <span>Your team</span>
+          </div>
+          <div class="architecture-flow">
+            <div class="arch-node">
+              <small>Call</small>
+              <strong>Live or replayed</strong>
+              <span>Any voice or chat agent</span>
+            </div>
+            <div class="arch-route"></div>
+            <div class="arch-node edge">
+              <small>Pipeline</small>
+              <strong>Runs test cases</strong>
+              <span>capture · assert · diff</span>
+            </div>
+            <div class="arch-route"></div>
+            <div class="private-zone">
+              <small>Shareable by link</small>
+              <div class="private-pair">
+                <div class="arch-node">
+                  <small>Report</small>
+                  <strong>Pass / fail</strong>
+                </div>
+                <div class="local-link"></div>
+                <div class="arch-node">
+                  <small>Trace</small>
+                  <strong>Frame by frame</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="architecture-meta">
+            <div><i></i>Replay without re-dialing</div>
+            <div><i></i>Diff any two runs</div>
+            <div><i></i>Alerts on regression</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────── Machine-readable ───────── -->
+    <section class="page section section-grid" id="agents">
+      <div class="code-layout">
+        <div class="code-copy">
+          <span class="kicker">Machine-readable</span>
+          <h2>One run in. One verdict out.</h2>
+          <p>Every run is an API call and every report is JSON. Wire it into CI, a cron, or a coding agent — the pipeline works exactly the same way.</p>
+          <div class="code-notes">
+            <span>idempotent</span>
+            <span>machine-readable</span>
+            <span>shareable by link</span>
+          </div>
+        </div>
+        <div class="code-card">
+          <div class="code-bar">
+            <span>ci-runner</span>
+            <span>cURL</span>
+            <button class="copy-icon" type="button" data-copy="curl -X POST https://api.callstack.dev/pipelines/onboarding-flow/runs -H &quot;Authorization: Bearer $CALLSTACK_TOKEN&quot;" aria-label="Copy request">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 10.5V3.5a1 1 0 0 1 1-1H10.5" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+          </div>
+          <div class="code-command">
+            <span class="prompt">$</span>
+            <code>curl -X POST https://api.callstack.dev/pipelines/onboarding-flow/runs \
+  -H "Authorization: Bearer $CALLSTACK_TOKEN"</code>
+          </div>
+          <div class="code-output">
+            <div class="output-status"><i></i>201 Created</div>
+            <pre class="output-json"><code>{
+  <span class="k">"run_id"</span>: <span class="s">"run_8f3k2qv"</span>,
+  <span class="k">"status"</span>: <span class="s">"passed"</span>,
+  <span class="k">"passed"</span>: <span class="n">12</span>, <span class="k">"failed"</span>: <span class="n">0</span>,
+  <span class="k">"trace_url"</span>: <span class="s">"https://app.callstack.dev/runs/run_8f3k2qv"</span>
+}</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────── Get started ───────── -->
+    <section class="page section" id="install">
+      <div class="steps-head">
+        <span class="kicker">Get started</span>
+        <h2>From first call to green in three steps</h2>
+      </div>
+      <div class="steps-stage section-grid">
+        <div class="steps">
+          <div class="step">
+            <span class="step-num">01 / PROJECT</span>
+            <h3>Create a project</h3>
+            <p>Sign in with Google or email. Group work by product, team or customer.</p>
+            <div class="command">
+              <span class="method">POST</span>
+              <code>/projects/</code>
+              <button class="copy-icon" type="button" data-copy="POST /projects/" aria-label="Copy endpoint">
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 10.5V3.5a1 1 0 0 1 1-1H10.5" stroke="currentColor" stroke-width="1.2"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="step">
+            <span class="step-num">02 / DEFINE</span>
+            <h3>Write test cases</h3>
+            <p>Describe what a good call looks like — greeting, intent, handoff, tone.</p>
+            <div class="command">
+              <span class="method">POST</span>
+              <code>/test-cases/</code>
+              <button class="copy-icon" type="button" data-copy="POST /test-cases/" aria-label="Copy endpoint">
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 10.5V3.5a1 1 0 0 1 1-1H10.5" stroke="currentColor" stroke-width="1.2"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="step">
+            <span class="step-num">03 / RUN</span>
+            <h3>Run the pipeline</h3>
+            <p>Point it at a live or recorded call and share the trace anywhere.</p>
+            <div class="command">
+              <span class="method">POST</span>
+              <code>/pipelines/{id}/runs</code>
+              <button class="copy-icon" type="button" data-copy="POST /pipelines/{id}/runs" aria-label="Copy endpoint">
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 10.5V3.5a1 1 0 0 1 1-1H10.5" stroke="currentColor" stroke-width="1.2"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────── CTA ───────── -->
+    <div class="cta-stage section-grid">
+      <section class="cta">
+        <span class="kicker">Start testing</span>
+        <h2>Ship calls with confidence</h2>
+        <p>Your next pipeline is one sign-in away. Free while we're in preview.</p>
+        <div class="cta-actions">
+          <a class="button button-primary" href="/login"><span>Start for free</span></a>
+          <a class="button button-secondary" href="/docs"><span>Read the API docs</span></a>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ───────── Footer ───────── -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-top">
+        <a class="brand" href="/" aria-label="callstack home">
+          <span class="brand-mark">cs</span>
+          <span>callstack</span>
+        </a>
+        <div class="footer-groups">
+          <div class="footer-section">
+            <strong>Product</strong>
+            <a href="#overview">Overview</a>
+            <a href="#how">How it works</a>
+            <a href="#install">Get started</a>
+          </div>
+          <div class="footer-section">
+            <strong>Developers</strong>
+            <a href="/docs">API reference</a>
+            <a href="/health">Status</a>
+          </div>
+          <div class="footer-section">
+            <strong>Account</strong>
+            <a href="/login">Sign in</a>
+            <a href="/login">Create account</a>
+          </div>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© 2026 callstack</span>
+        <div class="footer-legal">
+          <a href="#">Privacy</a>
+          <a href="#">Terms</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // ── Nav: snap to logo + sign in once the page is scrolled ─────────────
+    const header = document.getElementById('header');
+    let scrolled = false;
+    function onScroll() {
+      const next = window.scrollY > 24;
+      if (next === scrolled) return;
+      scrolled = next;
+      header.classList.toggle('is-scrolled', next);
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+
+    // ── Signed-in visitors go straight to the app ─────────────────────────
+    try {
+      if (localStorage.getItem('access_token')) {
+        document.querySelectorAll('.header-actions a, .cta-actions a.button-primary, .hero-actions a.button-primary').forEach((a) => {
+          if (a.getAttribute('href') === '/login') { a.href = '/home'; a.querySelector('span').textContent = 'Open app'; }
+        });
+      }
+    } catch {}
+
+    // ── Copy buttons ──────────────────────────────────────────────────────
+    document.querySelectorAll('[data-copy]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(btn.dataset.copy);
+          btn.classList.add('copied');
+          setTimeout(() => btn.classList.remove('copied'), 1200);
+        } catch {}
+      });
+    });
+  </script>
+</body>
+</html>
