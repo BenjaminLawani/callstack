@@ -18,6 +18,8 @@ from .schemas import (
     UserProfileUpdate,
     PasswordUpdate,
     Token,
+    AvatarUploadRequest,
+    AvatarUploadResponse,
 )
 
 from .models import (
@@ -44,6 +46,8 @@ from api.common.security import (
     CurrentUser,
     issue_token_pair
 )
+
+from api.common.storage import create_image_upload
 
 auth_router = APIRouter(
     prefix="/auth",
@@ -228,4 +232,30 @@ def update_profile(
     db.refresh(profile)
 
     return {"message": "Profile updated"}
+
+@profile_router.post("/avatar", response_model=AvatarUploadResponse)
+def create_avatar_upload_url(
+    data: AvatarUploadRequest,
+    db: DbSession,
+    user: CurrentUser,
+):
+    profile = (
+        db.query(UserProfile)
+        .filter_by(user_id=user.id)
+        .one_or_none()
+    )
+    if not profile:
+        raise ResourceNotFoundException("Profile")
+
+    upload = create_image_upload(data.content_type, folder="avatars")
+    profile.avatar_url = upload["public_url"]
+
+    db.commit()
+    db.refresh(profile)
+
+    return AvatarUploadResponse(
+        upload_url=upload["upload_url"],
+        avatar_url=profile.avatar_url,
+        expires_in=upload["expires_in"],
+    )
 

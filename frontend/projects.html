@@ -9,15 +9,466 @@
       <h1 class="text-2xl font-semibold tracking-tight">Projects</h1>
       <p class="mt-2 max-w-lg text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">Group pipelines and test cases by product, team or customer.</p>
     </div>
-    <button type="button"
+    <button type="button" id="new-project"
             class="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2">
       New project
     </button>
   </div>
 
-  <div class="mt-10 flex flex-col items-center justify-center rounded-xl border border-dashed border-neutral-200 dark:border-neutral-800 px-6 py-20 text-center">
-    <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">No projects yet</p>
-    <p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Nothing here yet. It'll show up as soon as you create one.</p>
+  <!-- Loading -->
+  <div id="projects-loading" class="mt-10">
+    <div class="grid gap-3 sm:grid-cols-2">
+      <div class="h-[72px] animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800"></div>
+      <div class="h-[72px] animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800"></div>
+    </div>
   </div>
+
+  <!-- Empty -->
+  <div id="projects-empty" class="mt-10 hidden">
+    <div class="flex flex-col items-center justify-center rounded-xl border border-dashed border-neutral-200 dark:border-neutral-800 px-6 py-20 text-center">
+      <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">No projects yet</p>
+      <p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Create your first project to group pipelines and test cases.</p>
+      <button type="button" id="empty-new-project"
+              class="mt-5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2">
+        New project
+      </button>
+    </div>
+  </div>
+
+  <!-- List -->
+  <div id="projects-list" class="mt-10 hidden">
+    <div id="projects-grid" class="grid gap-3 sm:grid-cols-2"></div>
+  </div>
+
+  <p id="projects-error" class="mt-10 hidden text-sm text-red-600 dark:text-red-400" role="alert"></p>
 </div>
+
+<!-- ───────── Drawer backdrop ───────── -->
+<div id="panel-backdrop" class="fixed inset-0 z-40 hidden bg-neutral-900/40 backdrop-blur-sm"></div>
+
+<!-- ───────── New project panel ───────── -->
+<aside id="panel-create" aria-hidden="true" aria-label="New project"
+       class="fixed inset-y-0 right-0 z-50 flex w-full max-w-md translate-x-full flex-col bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-neutral-800 transition-transform duration-200 ease-out">
+  <div class="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 dark:border-neutral-800 px-5">
+    <h2 class="text-base font-semibold tracking-tight">New project</h2>
+    <button type="button" data-close-panel aria-label="Close"
+            class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 dark:text-neutral-500 transition hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+      <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+    </button>
+  </div>
+
+  <form id="form-create" class="flex min-h-0 flex-1 flex-col" novalidate>
+    <div class="flex-1 space-y-6 overflow-y-auto p-5">
+      <div>
+        <label for="create-name" class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Name</label>
+        <input id="create-name" name="name" type="text" required maxlength="64" autocomplete="off"
+               class="mt-2 block w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2.5 text-sm placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+               placeholder="e.g. Checkout revamp" />
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Avatar <span class="font-normal text-neutral-400">(optional)</span></label>
+        <div class="mt-2 flex items-center gap-4">
+          <div id="create-avatar-preview" class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800 bg-cream text-base font-semibold text-primary"></div>
+          <div id="create-dropzone" role="button" tabindex="0" aria-label="Upload an image"
+               class="flex flex-1 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 px-4 py-5 text-center transition hover:border-primary hover:bg-primary/5 focus:outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-neutral-500 dark:text-neutral-400">
+              <path d="M12 10v6" /><path d="m9 13 3-3 3 3" />
+              <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+            </svg>
+            <div>
+              <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Click or drag and drop to upload your file</p>
+              <p class="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">PNG, JPG, GIF, WEBP (Max 5 MB)</p>
+            </div>
+            <input id="create-avatar" type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="sr-only" />
+          </div>
+        </div>
+      </div>
+
+      <p class="create-error hidden text-sm text-red-600 dark:text-red-400" role="alert"></p>
+    </div>
+
+    <div class="flex shrink-0 items-center justify-end gap-3 border-t border-neutral-200 dark:border-neutral-800 p-5">
+      <button type="button" data-close-panel
+              class="rounded-lg border border-neutral-200 dark:border-neutral-800 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-200 transition hover:bg-neutral-50 dark:hover:bg-neutral-800">
+        Cancel
+      </button>
+      <button type="submit"
+              class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2 disabled:opacity-60">
+        Create project
+      </button>
+    </div>
+  </form>
+</aside>
+
+<!-- ───────── Project detail panel ───────── -->
+<aside id="panel-detail" aria-hidden="true" aria-label="Project details"
+       class="fixed inset-y-0 right-0 z-50 flex w-full max-w-md translate-x-full flex-col bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-neutral-800 transition-transform duration-200 ease-out">
+  <div class="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 dark:border-neutral-800 px-5">
+    <h2 id="detail-title" class="min-w-0 truncate text-base font-semibold tracking-tight">Project</h2>
+    <button type="button" data-close-panel aria-label="Close"
+            class="ml-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-400 dark:text-neutral-500 transition hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+      <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+    </button>
+  </div>
+
+  <div class="flex min-h-0 flex-1 flex-col">
+    <div class="flex-1 space-y-6 overflow-y-auto p-5">
+      <!-- Avatar -->
+      <div>
+        <div class="flex items-center gap-4">
+          <div id="detail-avatar-preview" class="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800 bg-cream text-base font-semibold text-primary"></div>
+          <div id="detail-dropzone" role="button" tabindex="0" aria-label="Upload an image"
+               class="flex flex-1 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 px-4 py-5 text-center transition hover:border-primary hover:bg-primary/5 focus:outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-neutral-500 dark:text-neutral-400">
+              <path d="M12 10v6" /><path d="m9 13 3-3 3 3" />
+              <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+            </svg>
+            <div>
+              <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Click or drag and drop to upload your file</p>
+              <p class="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">PNG, JPG, GIF, WEBP (Max 5 MB)</p>
+            </div>
+            <input id="detail-avatar" type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="sr-only" />
+          </div>
+        </div>
+        <p id="detail-avatar-msg" class="mt-2 hidden text-xs" role="status"></p>
+      </div>
+
+      <!-- Name -->
+      <form id="form-detail" novalidate>
+        <label for="detail-name" class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Name</label>
+        <div class="mt-2 flex items-center gap-3">
+          <input id="detail-name" name="name" type="text" required maxlength="64" autocomplete="off"
+                 class="block w-full flex-1 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2.5 text-sm placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
+          <button type="submit"
+                  class="shrink-0 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2 disabled:opacity-60">
+            Save
+          </button>
+        </div>
+        <p class="detail-error mt-2 hidden text-sm text-red-600 dark:text-red-400" role="alert"></p>
+      </form>
+
+      <!-- Slug -->
+      <div>
+        <label class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Slug</label>
+        <p id="detail-slug" class="mt-2 truncate font-mono text-sm text-neutral-500 dark:text-neutral-400"></p>
+      </div>
+
+      <!-- Pipelines -->
+      <div>
+        <h3 class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Pipelines</h3>
+        <div id="detail-pipelines" class="mt-2 space-y-2"></div>
+      </div>
+    </div>
+
+    <div class="flex shrink-0 items-center justify-end gap-3 border-t border-neutral-200 dark:border-neutral-800 p-5">
+      <button type="button" id="detail-delete"
+              class="rounded-lg border border-red-200 dark:border-red-900/60 px-3.5 py-2 text-sm font-medium text-red-600 dark:text-red-400 transition hover:bg-red-50 dark:hover:bg-red-950/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 disabled:opacity-60">
+        Delete project
+      </button>
+    </div>
+  </div>
+</aside>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+  // ── Shared helpers ────────────────────────────────────────────────────
+  function drawAvatar(el, name, url) {
+    el.textContent = ((name || '?').trim() || '?').slice(0, 1).toUpperCase();
+    if (!url) return;
+    const img = new Image();
+    img.className = 'h-full w-full object-cover';
+    img.alt = '';
+    img.onload = () => el.replaceChildren(img);
+    img.src = url;
+  }
+
+  // Two-step upload: record on the project (presign) → PUT bytes to R2.
+  async function uploadProjectAvatar(projectId, file) {
+    const { upload_url, avatar_url } = await api(`/projects/${projectId}/avatar`, {
+      method: 'POST', body: { content_type: file.type },
+    });
+    const put = await fetch(upload_url, {
+      method: 'PUT', headers: { 'Content-Type': file.type }, body: file,
+    });
+    if (!put.ok) throw new Error('Avatar upload failed.');
+    return avatar_url;
+  }
+
+  // Wire a dropzone: validates, then calls onFile(file).
+  function wireDropzone(dropzone, fileInput, onError, onFile) {
+    function pick(f) {
+      if (!f) return;
+      if (!ALLOWED_IMAGE_TYPES.includes(f.type)) { onError('Unsupported image type. Use PNG, JPG, GIF or WEBP.'); return; }
+      if (f.size > MAX_IMAGE_BYTES) { onError('Image is too large. Maximum size is 5 MB.'); return; }
+      onError('');
+      onFile(f);
+    }
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+    fileInput.addEventListener('change', () => { pick(fileInput.files[0] || null); fileInput.value = ''; });
+    ['dragenter', 'dragover'].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add('border-primary', 'bg-primary/5'); }));
+    ['dragleave', 'drop'].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); if (ev === 'dragleave' && dropzone.contains(e.relatedTarget)) return; dropzone.classList.remove('border-primary', 'bg-primary/5'); }));
+    dropzone.addEventListener('drop', (e) => pick(e.dataTransfer?.files?.[0] || null));
+  }
+
+  // ── Drawer (side panel) controller ────────────────────────────────────
+  const panelBackdrop = document.getElementById('panel-backdrop');
+  const panels = { create: document.getElementById('panel-create'), detail: document.getElementById('panel-detail') };
+  let openPanel = null;
+
+  function showPanel(name) {
+    Object.entries(panels).forEach(([k, p]) => {
+      const on = k === name;
+      p.classList.toggle('translate-x-full', !on);
+      p.setAttribute('aria-hidden', on ? 'false' : 'true');
+    });
+    panelBackdrop.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    openPanel = name;
+    panels[name].querySelector('input:not([type=file]), button')?.focus();
+  }
+  function closePanels() {
+    Object.values(panels).forEach((p) => { p.classList.add('translate-x-full'); p.setAttribute('aria-hidden', 'true'); });
+    panelBackdrop.classList.add('hidden');
+    document.body.style.overflow = '';
+    openPanel = null;
+  }
+  panelBackdrop.addEventListener('click', closePanels);
+  document.querySelectorAll('[data-close-panel]').forEach((b) => b.addEventListener('click', closePanels));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && openPanel) closePanels(); });
+
+  // ── Project list ──────────────────────────────────────────────────────
+  const loadingEl = document.getElementById('projects-loading');
+  const emptyEl = document.getElementById('projects-empty');
+  const listEl = document.getElementById('projects-list');
+  const gridEl = document.getElementById('projects-grid');
+  const listErrorEl = document.getElementById('projects-error');
+  let projects = [];
+
+  function renderList() {
+    loadingEl.classList.add('hidden');
+    listErrorEl.classList.add('hidden');
+    const hasProjects = projects.length > 0;
+    emptyEl.classList.toggle('hidden', hasProjects);
+    listEl.classList.toggle('hidden', !hasProjects);
+    if (hasProjects) gridEl.replaceChildren(...projects.map(projectCard));
+  }
+
+  function projectCard(p) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'flex w-full items-center gap-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 text-left transition hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20';
+    const avatar = document.createElement('div');
+    avatar.className = 'flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-cream text-sm font-semibold text-primary';
+    drawAvatar(avatar, p.name, p.avatar_url);
+    const text = document.createElement('div');
+    text.className = 'min-w-0';
+    const name = document.createElement('p');
+    name.className = 'truncate text-sm font-medium text-neutral-900 dark:text-neutral-100';
+    name.textContent = p.name;
+    const slug = document.createElement('p');
+    slug.className = 'truncate text-xs text-neutral-400 dark:text-neutral-500';
+    slug.textContent = p.slug;
+    text.append(name, slug);
+    btn.append(avatar, text);
+    btn.addEventListener('click', () => openDetail(p.id));
+    return btn;
+  }
+
+  async function loadProjects() {
+    try {
+      const data = await api('/projects/');
+      projects = data.projects || [];
+      renderList();
+    } catch (err) {
+      loadingEl.classList.add('hidden');
+      listErrorEl.textContent = err.message;
+      listErrorEl.classList.remove('hidden');
+    }
+  }
+
+  // ── Create project ────────────────────────────────────────────────────
+  const formCreate = document.getElementById('form-create');
+  const createError = formCreate.querySelector('.create-error');
+  const createPreview = document.getElementById('create-avatar-preview');
+  let createFile = null;
+  let createFileUrl = null;
+
+  function setCreateError(m) { createError.textContent = m || ''; createError.classList.toggle('hidden', !m); }
+  function resetCreate() {
+    formCreate.reset();
+    createFile = null;
+    if (createFileUrl) { URL.revokeObjectURL(createFileUrl); createFileUrl = null; }
+    drawAvatar(createPreview, '', '');
+    setCreateError('');
+  }
+
+  wireDropzone(
+    document.getElementById('create-dropzone'),
+    document.getElementById('create-avatar'),
+    setCreateError,
+    (f) => {
+      createFile = f;
+      if (createFileUrl) URL.revokeObjectURL(createFileUrl);
+      createFileUrl = URL.createObjectURL(f);
+      drawAvatar(createPreview, formCreate.name.value, createFileUrl);
+    },
+  );
+  formCreate.name.addEventListener('input', () => { if (!createFile) drawAvatar(createPreview, formCreate.name.value, ''); });
+
+  function openCreate() { resetCreate(); showPanel('create'); formCreate.name.focus(); }
+  document.getElementById('new-project').addEventListener('click', openCreate);
+  document.getElementById('empty-new-project').addEventListener('click', openCreate);
+
+  formCreate.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!formCreate.reportValidity()) return;
+    const submit = formCreate.querySelector('button[type="submit"]');
+    const prev = submit.textContent;
+    submit.disabled = true; submit.textContent = 'Creating…'; setCreateError('');
+    try {
+      const project = await api('/projects/', { method: 'POST', body: { name: formCreate.name.value.trim() } });
+      if (createFile) {
+        try { project.avatar_url = await uploadProjectAvatar(project.id, createFile); }
+        catch (_) { /* project created; avatar can be set later from the detail panel */ }
+      }
+      projects = [project, ...projects];
+      renderList();
+      closePanels();
+    } catch (err) {
+      setCreateError(err.message);
+    } finally {
+      submit.disabled = false; submit.textContent = prev;
+    }
+  });
+
+  // ── Project detail ────────────────────────────────────────────────────
+  const detailTitle = document.getElementById('detail-title');
+  const detailPreview = document.getElementById('detail-avatar-preview');
+  const detailAvatarMsg = document.getElementById('detail-avatar-msg');
+  const detailSlug = document.getElementById('detail-slug');
+  const detailPipelines = document.getElementById('detail-pipelines');
+  const detailDelete = document.getElementById('detail-delete');
+  const formDetail = document.getElementById('form-detail');
+  const detailError = formDetail.querySelector('.detail-error');
+  let currentProject = null;
+
+  function setDetailError(m) { detailError.textContent = m || ''; detailError.classList.toggle('hidden', !m); }
+  function setDetailAvatarMsg(text, ok = true) {
+    detailAvatarMsg.textContent = text || '';
+    detailAvatarMsg.classList.toggle('hidden', !text);
+    ['text-neutral-500', 'dark:text-neutral-400'].forEach((c) => detailAvatarMsg.classList.toggle(c, ok));
+    ['text-red-600', 'dark:text-red-400'].forEach((c) => detailAvatarMsg.classList.toggle(c, !ok));
+    clearTimeout(detailAvatarMsg._t);
+    if (text && ok) detailAvatarMsg._t = setTimeout(() => detailAvatarMsg.classList.add('hidden'), 3000);
+  }
+
+  function renderPipelines(pipelines) {
+    if (!pipelines || !pipelines.length) {
+      detailPipelines.innerHTML = '<p class="text-sm text-neutral-400 dark:text-neutral-500">No pipelines yet.</p>';
+      return;
+    }
+    detailPipelines.replaceChildren(...pipelines.map((pl) => {
+      const row = document.createElement('div');
+      row.className = 'rounded-lg border border-neutral-200 dark:border-neutral-800 px-3 py-2 text-sm text-neutral-700 dark:text-neutral-200';
+      row.textContent = pl.name || pl.id;
+      return row;
+    }));
+  }
+
+  async function openDetail(id) {
+    showPanel('detail');
+    detailTitle.textContent = 'Project';
+    formDetail.name.value = '';
+    detailSlug.textContent = '';
+    detailPipelines.innerHTML = '<p class="text-sm text-neutral-400 dark:text-neutral-500">Loading…</p>';
+    setDetailError(''); setDetailAvatarMsg('');
+    drawAvatar(detailPreview, '', '');
+    currentProject = null;
+    try {
+      const data = await api(`/projects/${id}`);
+      currentProject = data.project;
+      detailTitle.textContent = currentProject.name;
+      formDetail.name.value = currentProject.name;
+      detailSlug.textContent = currentProject.slug;
+      drawAvatar(detailPreview, currentProject.name, currentProject.avatar_url);
+      renderPipelines(data.pipelines);
+    } catch (err) {
+      detailPipelines.innerHTML = '';
+      setDetailError(err.message);
+    }
+  }
+
+  function syncListRow(id, patch) {
+    const idx = projects.findIndex((p) => p.id === id);
+    if (idx >= 0) { Object.assign(projects[idx], patch); renderList(); }
+  }
+
+  wireDropzone(
+    document.getElementById('detail-dropzone'),
+    document.getElementById('detail-avatar'),
+    (m) => setDetailAvatarMsg(m, false),
+    async (f) => {
+      if (!currentProject) return;
+      const localUrl = URL.createObjectURL(f);
+      drawAvatar(detailPreview, currentProject.name, localUrl);   // optimistic
+      setDetailAvatarMsg('Uploading…');
+      try {
+        const avatar_url = await uploadProjectAvatar(currentProject.id, f);
+        currentProject.avatar_url = avatar_url;
+        drawAvatar(detailPreview, currentProject.name, avatar_url);
+        syncListRow(currentProject.id, { avatar_url });
+        setDetailAvatarMsg('Avatar updated.');
+      } catch (err) {
+        drawAvatar(detailPreview, currentProject.name, currentProject.avatar_url);  // revert
+        setDetailAvatarMsg(err.message, false);
+      } finally {
+        URL.revokeObjectURL(localUrl);
+      }
+    },
+  );
+
+  formDetail.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!currentProject || !formDetail.reportValidity()) return;
+    const name = formDetail.name.value.trim();
+    const submit = formDetail.querySelector('button[type="submit"]');
+    submit.disabled = true; setDetailError('');
+    try {
+      await api(`/projects/${currentProject.id}`, { method: 'PATCH', body: { name } });
+      currentProject.name = name;
+      detailTitle.textContent = name;
+      drawAvatar(detailPreview, name, currentProject.avatar_url);
+      syncListRow(currentProject.id, { name });
+    } catch (err) {
+      setDetailError(err.message);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  detailDelete.addEventListener('click', async () => {
+    if (!currentProject) return;
+    if (!confirm(`Delete "${currentProject.name}"? This can't be undone.`)) return;
+    detailDelete.disabled = true; setDetailError('');
+    try {
+      await api(`/projects/${currentProject.id}`, { method: 'DELETE' });
+      projects = projects.filter((p) => p.id !== currentProject.id);
+      renderList();
+      closePanels();
+    } catch (err) {
+      setDetailError(err.message);
+    } finally {
+      detailDelete.disabled = false;
+    }
+  });
+
+  // ── Go ────────────────────────────────────────────────────────────────
+  loadProjects();
+</script>
 {% endblock %}

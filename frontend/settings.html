@@ -18,14 +18,24 @@
 
       <div class="space-y-5">
         <div>
-          <label for="avatar_url" class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Avatar URL</label>
-          <div class="mt-2 flex items-center gap-3">
+          <label class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Avatar</label>
+          <div class="mt-2 flex items-center gap-4">
             <div id="avatar-preview"
-                 class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-neutral-200 dark:border-neutral-800 bg-cream text-sm font-semibold text-primary"></div>
-            <input id="avatar_url" name="avatar_url" type="url" autocomplete="url"
-                   class="block w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2.5 text-sm placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                   placeholder="https://…/avatar.png" />
+                 class="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-neutral-200 dark:border-neutral-800 bg-cream text-base font-semibold text-primary"></div>
+            <div id="avatar-dropzone" role="button" tabindex="0" aria-label="Upload an image"
+                 class="flex flex-1 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 px-4 py-5 text-center transition hover:border-primary hover:bg-primary/5 focus:outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-neutral-500 dark:text-neutral-400">
+                <path d="M12 10v6" /><path d="m9 13 3-3 3 3" />
+                <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+              </svg>
+              <div>
+                <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Click or drag and drop to upload your file</p>
+                <p class="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">PNG, JPG, GIF, WEBP (Max 5 MB)</p>
+              </div>
+              <input id="avatar" name="avatar" type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="sr-only" />
+            </div>
           </div>
+          <p id="avatar-msg" class="mt-2 hidden text-xs" role="status"></p>
         </div>
 
         <div>
@@ -183,28 +193,110 @@
     finally { button.disabled = false; }
   }
 
-  // ── Avatar preview ────────────────────────────────────────────────────
-  const avatarInput = document.getElementById('avatar_url');
+  // ── Avatar: circle preview + sidebar sync ─────────────────────────────
+  const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+  const ALLOWED_AVATAR_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
   const avatarPreview = document.getElementById('avatar-preview');
-  function renderAvatar() {
-    const url = avatarInput.value.trim();
-    avatarPreview.textContent = (forms.profile.username.value || '?').slice(0, 1).toUpperCase();
+
+  function drawInto(el, url, initialSource) {
+    el.textContent = ((initialSource || '?').trim() || '?').slice(0, 1).toUpperCase();
     if (!url) return;
     const img = new Image();
     img.className = 'h-full w-full object-cover';
     img.alt = '';
-    img.onload = () => avatarPreview.replaceChildren(img);
+    img.onload = () => el.replaceChildren(img);
     img.src = url;
   }
-  avatarInput.addEventListener('input', renderAvatar);
-  forms.profile.username.addEventListener('input', renderAvatar);
+  function renderAvatar(src) {
+    drawInto(avatarPreview, src ?? user?.avatar_url, forms.profile.username.value);
+  }
+  function updateSidebarAvatar(url, username) {
+    drawInto(document.getElementById('user-avatar'), url, username);
+  }
+  forms.profile.username.addEventListener('input', () => renderAvatar());
+
+  // ── Avatar: inline dropzone (uploads on drop/select) ──────────────────
+  (() => {
+    const dropzone = document.getElementById('avatar-dropzone');
+    const fileInput = document.getElementById('avatar');
+    const msgEl = document.getElementById('avatar-msg');
+    let busy = false;
+
+    function setMsg(text, ok = true) {
+      msgEl.textContent = text || '';
+      msgEl.classList.toggle('hidden', !text);
+      ['text-neutral-500', 'dark:text-neutral-400'].forEach((c) => msgEl.classList.toggle(c, ok));
+      ['text-red-600', 'dark:text-red-400'].forEach((c) => msgEl.classList.toggle(c, !ok));
+      clearTimeout(msgEl._t);
+      if (text && ok) msgEl._t = setTimeout(() => msgEl.classList.add('hidden'), 3000);
+    }
+
+    async function upload(file) {
+      if (busy || !file) return;
+      if (!ALLOWED_AVATAR_TYPES.includes(file.type)) {
+        setMsg('Unsupported image type. Use PNG, JPG, GIF or WEBP.', false);
+        return;
+      }
+      if (file.size > MAX_AVATAR_BYTES) {
+        setMsg('Image is too large. Maximum size is 5 MB.', false);
+        return;
+      }
+      busy = true;
+      dropzone.classList.add('opacity-60', 'pointer-events-none');
+      const objectUrl = URL.createObjectURL(file);
+      renderAvatar(objectUrl);                 // optimistic preview
+      setMsg('Uploading…');
+      try {
+        // Record the avatar + get a presigned URL, then upload straight to R2
+        const { upload_url, avatar_url } = await api('/profiles/avatar', {
+          method: 'POST', body: { content_type: file.type },
+        });
+        const put = await fetch(upload_url, {
+          method: 'PUT', headers: { 'Content-Type': file.type }, body: file,
+        });
+        if (!put.ok) throw new Error('Avatar upload failed.');
+        if (user) user.avatar_url = avatar_url || '';
+        renderAvatar(avatar_url);
+        updateSidebarAvatar(avatar_url, forms.profile.username.value.trim());
+        setMsg('Avatar updated.');
+      } catch (err) {
+        renderAvatar();                        // revert optimistic preview
+        setMsg(err.message, false);
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+        fileInput.value = '';
+        dropzone.classList.remove('opacity-60', 'pointer-events-none');
+        busy = false;
+      }
+    }
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+    });
+    fileInput.addEventListener('change', () => upload(fileInput.files[0] || null));
+
+    ['dragenter', 'dragover'].forEach((ev) =>
+      dropzone.addEventListener(ev, (e) => {
+        e.preventDefault();
+        dropzone.classList.add('border-primary', 'bg-primary/5');
+      })
+    );
+    ['dragleave', 'drop'].forEach((ev) =>
+      dropzone.addEventListener(ev, (e) => {
+        e.preventDefault();
+        if (ev === 'dragleave' && dropzone.contains(e.relatedTarget)) return;
+        dropzone.classList.remove('border-primary', 'bg-primary/5');
+      })
+    );
+    dropzone.addEventListener('drop', (e) => upload(e.dataTransfer?.files?.[0] || null));
+  })();
 
   // ── Load ──────────────────────────────────────────────────────────────
   window.currentUser.then((u) => {
     if (!u) return;
     user = u;
     forms.profile.username.value = u.username;
-    forms.profile.avatar_url.value = u.avatar_url;
     forms.profile.email.value = u.email;
     renderAvatar();
 
@@ -223,22 +315,12 @@
     if (!forms.profile.reportValidity()) return;
     withSubmitting(forms.profile, async () => {
       const username = forms.profile.username.value.trim();
-      const avatar_url = forms.profile.avatar_url.value.trim() || null;
-      await api('/profiles/', { method: 'PATCH', body: { username, avatar_url } });
+      await api('/profiles/', { method: 'PATCH', body: { username } });
 
       // keep the sidebar in sync without a reload
       user.username = username;
-      user.avatar_url = avatar_url || '';
       document.getElementById('user-name').textContent = username;
-      const sidebarAvatar = document.getElementById('user-avatar');
-      sidebarAvatar.textContent = username.slice(0, 1).toUpperCase();
-      if (avatar_url) {
-        const img = new Image();
-        img.className = 'h-full w-full object-cover';
-        img.alt = '';
-        img.onload = () => sidebarAvatar.replaceChildren(img);
-        img.src = avatar_url;
-      }
+      updateSidebarAvatar(user.avatar_url, username);
       setStatus(forms.profile, 'Saved.');
     });
   });

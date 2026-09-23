@@ -10,9 +10,10 @@ from typing import (
     Optional,
 )
 
+from api.pipelines.schemas import PipelineResponse
+
 class ProjectCreate(BaseModel):
     name: str
-    avatar_url: Optional[str] = None
 
 class ProjectCreateRessponse(BaseModel):
     id: UUID4
@@ -28,7 +29,6 @@ class ProjectCreateRessponse(BaseModel):
 
 class ProjectUpdateRequest(BaseModel):
     name: Optional[str] = None
-    avatar_url: Optional[str] = None
 
 class ProjectRessponse(BaseModel):
     id: UUID4
@@ -41,3 +41,15 @@ class ProjectRessponse(BaseModel):
 
 class ListProjectResponse(BaseModel):
     projects: List[ProjectCreateRessponse]
+
+class ProjectDetailResponse(BaseModel):
+    project: ProjectRessponse
+    pipelines: List[PipelineResponse]
+
+class AvatarUploadRequest(BaseModel):
+    content_type: str
+
+class AvatarUploadResponse(BaseModel):
+    upload_url: str
+    avatar_url: str
+    expires_in: int

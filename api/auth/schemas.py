@@ -35,7 +35,6 @@ class Token(BaseModel):
 class UserProfileCreate(BaseModel):
     username: str
     preferences: Optional[dict] = None
-    avatar_url: Optional[str] = None
 
 class UserProfileResponse(BaseModel):
     id: UUID4
@@ -51,9 +50,16 @@ class UserProfileResponse(BaseModel):
 class UserProfileUpdate(BaseModel):
     username: Optional[str] = Field(default=None, min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
     preferences: Optional[dict] = None
-    avatar_url: Optional[str] = None
 
 class PasswordUpdate(BaseModel):
     old_password: str
     new_password: str = Field(min_length=8)
+
+class AvatarUploadRequest(BaseModel):
+    content_type: str
+
+class AvatarUploadResponse(BaseModel):
+    upload_url: str
+    avatar_url: str
+    expires_in: int
 

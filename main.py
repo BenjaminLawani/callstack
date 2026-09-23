@@ -1,5 +1,5 @@
 from pathlib import Path
-
+import api.common.registry
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
@@ -13,6 +13,7 @@ from api.auth.endpoints import (
     profile_router
 )
 from api.dashboard.endpoints import dashboard_router
+from api.projects.endpoints import project_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -41,3 +42,4 @@ app.mount("/assets", StaticFiles(directory=templates_path / "assets"), name="ass
 app.include_router(auth_router)
 app.include_router(profile_router)
 app.include_router(dashboard_router)
+app.include_router(project_router)
