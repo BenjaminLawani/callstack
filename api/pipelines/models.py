@@ -35,6 +35,7 @@ class Pipeline(TimestampMixin, Base):
 
     nodes = relationship("PipelineNode", back_populates="pipeline")
     project = relationship("Project", back_populates="pipelines")
+    tests = relationship("TestCase",  back_populates="pipeline")
 
 class PipelineNode(TimestampMixin, Base):
     __tablename__ = "pipeline_nodes"
