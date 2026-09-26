@@ -1,5 +1,5 @@
 from pathlib import Path
-import api.common.registry
+import api.common.registry #noqa
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
@@ -14,6 +14,13 @@ from api.auth.endpoints import (
 )
 from api.dashboard.endpoints import dashboard_router
 from api.projects.endpoints import project_router
+from api.pipelines.endpoints import (
+    model_router,
+    pipeline_router,
+    node_router,
+    runs_router
+)
+from api.test_cases.endpoints import test_cases_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -43,3 +50,8 @@ app.include_router(auth_router)
 app.include_router(profile_router)
 app.include_router(dashboard_router)
 app.include_router(project_router)
+app.include_router(model_router)
+app.include_router(node_router)
+app.include_router(pipeline_router)
+app.include_router(runs_router)
+app.include_router(test_cases_router)

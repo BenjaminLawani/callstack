@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv>=1.2.3",
     "python-multipart>=0.0.32",
     "python-slugify>=9.1.1",
+    "ruff>=0.16.9",
     "slowapi>=0.1.10",
     "sqlalchemy>=2.0.54",
 ]

@@ -2,6 +2,43 @@
 {% set active = 'test-cases' %}
 {% block title %}Test cases · callstack{% endblock %}
 
+{% block head %}
+<style>
+  /* Builder canvas: subtle dotted grid, theme-aware. */
+  .cs-canvas {
+    background-color: #fafafa;
+    background-image: radial-gradient(#d4d4d4 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  html.dark .cs-canvas {
+    background-color: #0a0a0a;
+    background-image: radial-gradient(#262626 1px, transparent 1px);
+  }
+  .cs-port {
+    position: absolute;
+    top: 50%;
+    height: 14px;
+    width: 14px;
+    transform: translateY(-50%);
+    border-radius: 9999px;
+    border: 2px solid #fff;
+    background: var(--port-accent, #059669);
+    cursor: crosshair;
+    transition: transform .12s ease;
+  }
+  html.dark .cs-port { border-color: #171717; }
+  .cs-port:hover { transform: translateY(-50%) scale(1.35); }
+  .cs-port.in  { left: -7px; }
+  .cs-port.out { right: -7px; }
+  .cs-node { touch-action: none; }
+  .cs-node.selected { box-shadow: 0 0 0 2px #1E3FBF, 0 8px 24px -8px rgba(0,0,0,.25); }
+  .cs-edge-hit { stroke: transparent; stroke-width: 16; fill: none; cursor: pointer; }
+  .cs-edge { fill: none; stroke: #94a3b8; stroke-width: 2; }
+  html.dark .cs-edge { stroke: #52525b; }
+  .cs-edge-group:hover .cs-edge { stroke: #1E3FBF; stroke-width: 2.5; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6">
   <div class="flex items-start justify-between gap-6">
@@ -9,15 +46,786 @@
       <h1 class="text-2xl font-semibold tracking-tight">Test cases</h1>
       <p class="mt-2 max-w-lg text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">Define what a good call looks like and check every run against it.</p>
     </div>
-    <button type="button"
+    <button type="button" id="new-test-case"
             class="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2">
       New test case
     </button>
   </div>
 
-  <div class="mt-10 flex flex-col items-center justify-center rounded-xl border border-dashed border-neutral-200 dark:border-neutral-800 px-6 py-20 text-center">
-    <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">No test cases yet</p>
-    <p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Nothing here yet. It'll show up as soon as you create one.</p>
+  <!-- Loading -->
+  <div id="tc-loading" class="mt-10">
+    <div class="grid gap-3 sm:grid-cols-2">
+      <div class="h-[72px] animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800"></div>
+      <div class="h-[72px] animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800"></div>
+    </div>
   </div>
+
+  <!-- Empty -->
+  <div id="tc-empty" class="mt-10 hidden">
+    <div class="flex flex-col items-center justify-center rounded-xl border border-dashed border-neutral-200 dark:border-neutral-800 px-6 py-20 text-center">
+      <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">No test cases yet</p>
+      <p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Create your first test case, then wire up assertions in the visual builder.</p>
+      <button type="button" id="empty-new-test-case"
+              class="mt-5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2">
+        New test case
+      </button>
+    </div>
+  </div>
+
+  <!-- List -->
+  <div id="tc-list" class="mt-10 hidden">
+    <div id="tc-grid" class="grid gap-3 sm:grid-cols-2"></div>
+  </div>
+
+  <p id="tc-error" class="mt-10 hidden text-sm text-red-600 dark:text-red-400" role="alert"></p>
 </div>
+
+<!-- ───────── Drawer backdrop ───────── -->
+<div id="panel-backdrop" class="fixed inset-0 z-40 hidden bg-neutral-900/40 backdrop-blur-sm"></div>
+
+<!-- ───────── New test case panel ───────── -->
+<aside id="panel-create" aria-hidden="true" aria-label="New test case"
+       class="fixed inset-y-0 right-0 z-50 flex w-full max-w-md translate-x-full flex-col bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-neutral-800 transition-transform duration-200 ease-out">
+  <div class="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 dark:border-neutral-800 px-5">
+    <h2 class="text-base font-semibold tracking-tight">New test case</h2>
+    <button type="button" data-close-panel aria-label="Close"
+            class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 dark:text-neutral-500 transition hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+      <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+    </button>
+  </div>
+
+  <form id="form-create" class="flex min-h-0 flex-1 flex-col" novalidate>
+    <div class="flex-1 space-y-6 overflow-y-auto p-5">
+      <div>
+        <label for="create-name" class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Name</label>
+        <input id="create-name" name="name" type="text" required maxlength="32" autocomplete="off"
+               class="mt-2 block w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2.5 text-sm placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+               placeholder="e.g. greets-caller" />
+        <p class="mt-1.5 text-xs text-neutral-400 dark:text-neutral-500">Up to 32 characters.</p>
+      </div>
+
+      <div>
+        <label for="create-pipeline" class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Pipeline</label>
+        <select id="create-pipeline" name="pipeline" required
+                class="mt-2 block w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </select>
+        <p id="create-no-pipelines" class="mt-1.5 hidden text-xs text-red-600 dark:text-red-400">
+          You need a pipeline first. <a href="/pipelines" class="font-medium underline">Create one →</a>
+        </p>
+      </div>
+
+      <p class="create-error hidden text-sm text-red-600 dark:text-red-400" role="alert"></p>
+    </div>
+
+    <div class="flex shrink-0 items-center justify-end gap-3 border-t border-neutral-200 dark:border-neutral-800 p-5">
+      <button type="button" data-close-panel
+              class="rounded-lg border border-neutral-200 dark:border-neutral-800 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-200 transition hover:bg-neutral-50 dark:hover:bg-neutral-800">
+        Cancel
+      </button>
+      <button type="submit" id="create-submit"
+              class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2 disabled:opacity-60">
+        Create test case
+      </button>
+    </div>
+  </form>
+</aside>
+
+<!-- ───────── Visual builder (full screen) ───────── -->
+<section id="builder" aria-hidden="true" aria-label="Test case builder"
+         class="fixed inset-0 z-[60] hidden flex-col bg-white dark:bg-neutral-950">
+  <!-- Header -->
+  <header class="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800 px-4">
+    <div class="flex min-w-0 items-center gap-3">
+      <button type="button" id="builder-close" aria-label="Back to test cases"
+              class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-500 transition hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+      </button>
+      <div class="min-w-0">
+        <h2 id="builder-title" class="truncate text-sm font-semibold tracking-tight">Test case</h2>
+        <p id="builder-status" class="truncate text-xs text-neutral-400 dark:text-neutral-500">0 steps</p>
+      </div>
+    </div>
+    <button type="button" id="builder-delete"
+            class="rounded-lg border border-red-200 dark:border-red-900/60 px-3 py-1.5 text-sm font-medium text-red-600 dark:text-red-400 transition hover:bg-red-50 dark:hover:bg-red-950/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 disabled:opacity-60">
+      Delete
+    </button>
+  </header>
+
+  <div class="flex min-h-0 flex-1 flex-col sm:flex-row">
+    <!-- Palette -->
+    <aside class="flex w-full shrink-0 flex-col border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 sm:w-60 sm:border-b-0 sm:border-r">
+      <div class="hidden border-b border-neutral-200 dark:border-neutral-800 px-4 py-3 sm:block">
+        <p class="text-xs font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">Steps</p>
+        <p class="mt-1 text-xs text-neutral-400 dark:text-neutral-500">Drag onto the canvas, or click to add.</p>
+      </div>
+      <div id="palette" class="flex flex-1 gap-2 overflow-x-auto p-3 sm:flex-col sm:gap-2 sm:overflow-x-visible sm:overflow-y-auto"></div>
+    </aside>
+
+    <!-- Canvas -->
+    <div id="canvas" class="cs-canvas relative min-w-0 flex-1 overflow-auto">
+      <div id="world" class="relative" style="width:2400px;height:1600px;">
+        <svg id="edges" class="pointer-events-none absolute inset-0 h-full w-full" width="2400" height="1600"></svg>
+        <div id="nodes" class="absolute inset-0"></div>
+      </div>
+      <!-- Empty hint -->
+      <div id="builder-empty" class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+        <div class="rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/70 px-6 py-8 backdrop-blur-sm">
+          <p class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Empty canvas</p>
+          <p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Drag a step from the left to get started.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Node config panel -->
+  <div id="cfg-backdrop" class="fixed inset-0 z-[65] hidden bg-neutral-900/40 backdrop-blur-sm"></div>
+  <aside id="cfg-panel" aria-hidden="true" aria-label="Step configuration"
+         class="fixed inset-y-0 right-0 z-[70] flex w-full max-w-sm translate-x-full flex-col bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-neutral-800 transition-transform duration-200 ease-out">
+    <div class="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 dark:border-neutral-800 px-5">
+      <div class="flex min-w-0 items-center gap-3">
+        <div id="cfg-icon" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white"></div>
+        <div class="min-w-0">
+          <h2 class="truncate text-sm font-semibold tracking-tight">Configure step</h2>
+          <p id="cfg-type" class="truncate text-xs text-neutral-400 dark:text-neutral-500"></p>
+        </div>
+      </div>
+      <button type="button" id="cfg-close" aria-label="Close"
+              class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 dark:text-neutral-500 transition hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+
+    <form id="cfg-form" class="flex min-h-0 flex-1 flex-col" novalidate>
+      <div class="flex-1 space-y-5 overflow-y-auto p-5">
+        <div>
+          <label for="cfg-name" class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Name</label>
+          <input id="cfg-name" name="name" type="text" maxlength="16" autocomplete="off"
+                 class="mt-2 block w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2.5 text-sm placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
+        </div>
+        <div>
+          <label for="cfg-desc" class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Description</label>
+          <input id="cfg-desc" name="description" type="text" maxlength="32" autocomplete="off"
+                 class="mt-2 block w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2.5 text-sm placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                 placeholder="What this step checks" />
+        </div>
+        <div id="cfg-fields" class="space-y-5"></div>
+        <label class="flex items-start gap-3">
+          <input id="cfg-should-fail" type="checkbox"
+                 class="mt-0.5 h-4 w-4 rounded border-neutral-300 dark:border-neutral-700 text-primary focus:ring-primary/30" />
+          <span class="text-sm">
+            <span class="font-medium text-neutral-800 dark:text-neutral-200">Expect this step to fail</span>
+            <span class="block text-xs text-neutral-400 dark:text-neutral-500">The run passes only if the assertion does <em>not</em> hold.</span>
+          </span>
+        </label>
+        <p class="cfg-error hidden text-sm text-red-600 dark:text-red-400" role="alert"></p>
+      </div>
+      <div class="flex shrink-0 items-center justify-between gap-3 border-t border-neutral-200 dark:border-neutral-800 p-5">
+        <button type="button" id="cfg-delete"
+                class="rounded-lg border border-red-200 dark:border-red-900/60 px-3.5 py-2 text-sm font-medium text-red-600 dark:text-red-400 transition hover:bg-red-50 dark:hover:bg-red-950/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 disabled:opacity-60">
+          Delete
+        </button>
+        <button type="submit"
+                class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2 disabled:opacity-60">
+          Save
+        </button>
+      </div>
+    </form>
+  </aside>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // ── Step registry ───────────────────────────────────────────────────────
+  // Test case nodes carry no `node_type` server-side — a step is an assertion,
+  // and the visual "type" is derived from its `should_fail` flag.
+  const NODE_TYPES = {
+    assert: { label: 'Assertion', desc: 'Check the output', accent: '#059669', should_fail: false,
+              icon: 'm9 12.75 2.25 2.25 4.5-4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z' },
+    fail:   { label: 'Expect fail', desc: 'Step should fail', accent: '#DC2626', should_fail: true,
+              icon: 'm9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z' },
+  };
+  const typeOf = (node) => (node.should_fail ? 'fail' : 'assert');
+  const NODE_W = 184, NODE_H = 68;
+
+  // Assertion fields serialized into the node's `assertions` JSONB.
+  const CONFIG_FIELDS = [
+    { key: 'kind',     label: 'Assertion', type: 'select', options: ['contains', 'not_contains', 'equals', 'regex'] },
+    { key: 'expected', label: 'Expected',  type: 'text',   placeholder: 'Expected output' },
+  ];
+
+  function iconSvg(type, cls) {
+    const t = NODE_TYPES[type];
+    return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="${t.icon}"/></svg>`;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // ── Drawer (side panel) controller ─────────────────────────────────────
+  const panelBackdrop = document.getElementById('panel-backdrop');
+  const panelCreate = document.getElementById('panel-create');
+  let panelOpen = false;
+
+  function showCreatePanel() {
+    panelCreate.classList.remove('translate-x-full');
+    panelCreate.setAttribute('aria-hidden', 'false');
+    panelBackdrop.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    panelOpen = true;
+  }
+  function closePanels() {
+    panelCreate.classList.add('translate-x-full');
+    panelCreate.setAttribute('aria-hidden', 'true');
+    panelBackdrop.classList.add('hidden');
+    document.body.style.overflow = '';
+    panelOpen = false;
+  }
+  panelBackdrop.addEventListener('click', closePanels);
+  document.querySelectorAll('[data-close-panel]').forEach((b) => b.addEventListener('click', closePanels));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && panelOpen) closePanels(); });
+
+  // ── Test case list ───────────────────────────────────────────────────────
+  const loadingEl = document.getElementById('tc-loading');
+  const emptyEl = document.getElementById('tc-empty');
+  const listEl = document.getElementById('tc-list');
+  const gridEl = document.getElementById('tc-grid');
+  const listErrorEl = document.getElementById('tc-error');
+  let testCases = [];
+  let pipelinesById = {};
+
+  function renderList() {
+    loadingEl.classList.add('hidden');
+    listErrorEl.classList.add('hidden');
+    const has = testCases.length > 0;
+    emptyEl.classList.toggle('hidden', has);
+    listEl.classList.toggle('hidden', !has);
+    if (has) gridEl.replaceChildren(...testCases.map(testCaseCard));
+  }
+
+  function testCaseCard(tc) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'flex w-full items-center gap-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 text-left transition hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20';
+    const badge = document.createElement('div');
+    badge.className = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cream text-primary';
+    badge.innerHTML = '<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="m9 12.75 2.25 2.25 4.5-4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>';
+    const text = document.createElement('div');
+    text.className = 'min-w-0';
+    const name = document.createElement('p');
+    name.className = 'truncate text-sm font-medium text-neutral-900 dark:text-neutral-100';
+    name.textContent = tc.name;
+    const sub = document.createElement('p');
+    sub.className = 'truncate text-xs text-neutral-400 dark:text-neutral-500';
+    sub.textContent = pipelinesById[tc.pipeline_id]?.name || 'Pipeline';
+    text.append(name, sub);
+    btn.append(badge, text);
+    btn.addEventListener('click', () => openBuilder(tc));
+    return btn;
+  }
+
+  async function loadTestCases() {
+    try {
+      const [tcData, pipeData] = await Promise.all([
+        api('/test-cases/'),
+        api('/pipelines/').catch(() => ({ pipelines: [] })),
+      ]);
+      testCases = tcData.test_cases || [];
+      pipelinesById = Object.fromEntries((pipeData.pipelines || []).map((p) => [p.id, p]));
+      renderList();
+    } catch (err) {
+      loadingEl.classList.add('hidden');
+      listErrorEl.textContent = err.message;
+      listErrorEl.classList.remove('hidden');
+    }
+  }
+
+  // ── Create test case ─────────────────────────────────────────────────────
+  const formCreate = document.getElementById('form-create');
+  const createError = formCreate.querySelector('.create-error');
+  const createPipeline = document.getElementById('create-pipeline');
+  const createNoPipelines = document.getElementById('create-no-pipelines');
+  const createSubmit = document.getElementById('create-submit');
+
+  function setCreateError(m) { createError.textContent = m || ''; createError.classList.toggle('hidden', !m); }
+
+  async function openCreate() {
+    formCreate.reset();
+    setCreateError('');
+    showCreatePanel();
+    createPipeline.innerHTML = '<option value="" disabled selected>Loading pipelines…</option>';
+    try {
+      const { pipelines = [] } = await api('/pipelines/');
+      pipelinesById = Object.fromEntries(pipelines.map((p) => [p.id, p]));
+      if (!pipelines.length) {
+        createPipeline.innerHTML = '<option value="" disabled selected>No pipelines</option>';
+        createPipeline.disabled = true;
+        createNoPipelines.classList.remove('hidden');
+        createSubmit.disabled = true;
+      } else {
+        createPipeline.disabled = false;
+        createNoPipelines.classList.add('hidden');
+        createSubmit.disabled = false;
+        createPipeline.innerHTML = '<option value="" disabled selected>Select a pipeline</option>' +
+          pipelines.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+      }
+    } catch (err) {
+      createPipeline.innerHTML = '<option value="" disabled selected>Failed to load</option>';
+      setCreateError(err.message);
+    }
+    document.getElementById('create-name').focus();
+  }
+  document.getElementById('new-test-case').addEventListener('click', openCreate);
+  document.getElementById('empty-new-test-case').addEventListener('click', openCreate);
+
+  formCreate.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!formCreate.reportValidity()) return;
+    const pipelineId = createPipeline.value;
+    if (!pipelineId) { setCreateError('Choose a pipeline for this test case.'); return; }
+    const prev = createSubmit.textContent;
+    createSubmit.disabled = true; createSubmit.textContent = 'Creating…'; setCreateError('');
+    try {
+      const testCase = await api(`/test-cases/${pipelineId}`, {
+        method: 'POST', body: { name: formCreate.name.value.trim() },
+      });
+      testCases = [testCase, ...testCases];
+      renderList();
+      closePanels();
+      openBuilder(testCase);
+    } catch (err) {
+      setCreateError(err.message);
+    } finally {
+      createSubmit.disabled = false; createSubmit.textContent = prev;
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  //  Visual builder
+  // ══════════════════════════════════════════════════════════════════════
+  const builderEl = document.getElementById('builder');
+  const builderTitle = document.getElementById('builder-title');
+  const builderStatus = document.getElementById('builder-status');
+  const builderEmpty = document.getElementById('builder-empty');
+  const builderDelete = document.getElementById('builder-delete');
+  const paletteEl = document.getElementById('palette');
+  const canvasEl = document.getElementById('canvas');
+  const worldEl = document.getElementById('world');
+  const nodesLayer = document.getElementById('nodes');
+  const edgesSvg = document.getElementById('edges');
+
+  let btc = null;         // current test case
+  let bNodes = [];        // [{id, name, description, assertions, should_fail, x, y}]
+  let bEdges = [];        // [{from, to}]
+  let selectedId = null;
+
+  const layoutKey = (id) => `cs_test_case_layout_${id}`;
+  function saveLayout() {
+    if (!btc) return;
+    try {
+      const positions = {};
+      bNodes.forEach((n) => { positions[n.id] = { x: n.x, y: n.y }; });
+      localStorage.setItem(layoutKey(btc.id), JSON.stringify({ positions, edges: bEdges }));
+    } catch {}
+  }
+  function readLayout(id) {
+    try { return JSON.parse(localStorage.getItem(layoutKey(id))) || {}; } catch { return {}; }
+  }
+
+  function renderPalette() {
+    paletteEl.replaceChildren(...Object.entries(NODE_TYPES).map(([type, t]) => {
+      const item = document.createElement('div');
+      item.draggable = true;
+      item.dataset.type = type;
+      item.className = 'group flex w-48 shrink-0 cursor-grab items-center gap-3 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-2.5 transition hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm active:cursor-grabbing sm:w-auto';
+      const ic = document.createElement('div');
+      ic.className = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white';
+      ic.style.background = t.accent;
+      ic.innerHTML = iconSvg(type, 'h-[18px] w-[18px]');
+      const tx = document.createElement('div');
+      tx.className = 'min-w-0';
+      tx.innerHTML = `<p class="text-sm font-medium text-neutral-800 dark:text-neutral-100">${t.label}</p><p class="truncate text-xs text-neutral-400 dark:text-neutral-500">${t.desc}</p>`;
+      item.append(ic, tx);
+      item.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/node-type', type));
+      item.addEventListener('click', () => addNodeAt(type, 80 + Math.random() * 60, 80 + Math.random() * 60));
+      return item;
+    }));
+  }
+
+  function worldPoint(clientX, clientY) {
+    const r = worldEl.getBoundingClientRect();
+    return { x: clientX - r.left, y: clientY - r.top };
+  }
+
+  async function openBuilder(testCase) {
+    btc = testCase;
+    selectedId = null;
+    builderTitle.textContent = testCase.name;
+    builderStatus.textContent = 'Loading…';
+    nodesLayer.replaceChildren();
+    edgesSvg.innerHTML = '';
+    builderEl.classList.remove('hidden');
+    builderEl.classList.add('flex');
+    builderEl.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    renderPalette();
+    try {
+      const { nodes = [] } = await api(`/test-cases/${testCase.pipeline_id}/${testCase.id}/nodes`);
+      const saved = readLayout(testCase.id);
+      const pos = saved.positions || {};
+      bNodes = nodes.map((n, i) => ({
+        id: n.id,
+        name: n.name || '',
+        description: n.description || '',
+        assertions: n.assertions || {},
+        should_fail: !!n.should_fail,
+        x: pos[n.id]?.x ?? (60 + (i % 3) * 230),
+        y: pos[n.id]?.y ?? (60 + Math.floor(i / 3) * 120),
+      }));
+      const ids = new Set(bNodes.map((n) => n.id));
+      bEdges = (saved.edges || []).filter((e) => ids.has(e.from) && ids.has(e.to));
+      renderBuilder();
+    } catch (err) {
+      builderStatus.textContent = err.message;
+    }
+  }
+
+  function closeBuilder() {
+    closeConfig();
+    builderEl.classList.add('hidden');
+    builderEl.classList.remove('flex');
+    builderEl.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    btc = null;
+  }
+  document.getElementById('builder-close').addEventListener('click', closeBuilder);
+
+  function renderBuilder() {
+    builderEmpty.classList.toggle('hidden', bNodes.length > 0);
+    builderStatus.textContent = `${bNodes.length} step${bNodes.length === 1 ? '' : 's'} · autosaved`;
+    nodesLayer.replaceChildren(...bNodes.map(nodeEl));
+    renderEdges();
+  }
+
+  function nodeEl(n) {
+    const type = typeOf(n);
+    const t = NODE_TYPES[type];
+    const el = document.createElement('div');
+    el.className = 'cs-node absolute select-none rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-sm' + (n.id === selectedId ? ' selected' : '');
+    el.style.left = n.x + 'px';
+    el.style.top = n.y + 'px';
+    el.style.width = NODE_W + 'px';
+    el.style.height = NODE_H + 'px';
+    el.dataset.id = n.id;
+    const sub = n.assertions?.kind ? n.assertions.kind : t.label;
+    el.innerHTML = `
+      <div class="cs-port in"  data-inport  data-id="${n.id}" style="--port-accent:${t.accent}"></div>
+      <div class="cs-port out" data-outport data-id="${n.id}" style="--port-accent:${t.accent}"></div>
+      <div class="flex h-full items-center gap-3 px-3">
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white" style="background:${t.accent}">
+          ${iconSvg(type, 'h-5 w-5')}
+        </div>
+        <div class="min-w-0">
+          <p class="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">${escapeHtml(n.name || t.label)}</p>
+          <p class="truncate text-xs text-neutral-400 dark:text-neutral-500">${escapeHtml(sub)}</p>
+        </div>
+        <button type="button" data-del title="Remove step"
+                class="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-neutral-300 dark:text-neutral-600 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+        </button>
+      </div>`;
+    el.querySelector('[data-del]').addEventListener('pointerdown', (e) => e.stopPropagation());
+    el.querySelector('[data-del]').addEventListener('click', (e) => { e.stopPropagation(); removeNode(n.id); });
+    el.querySelector('[data-outport]').addEventListener('pointerdown', (e) => startConnect(e, n.id));
+    el.addEventListener('pointerdown', (e) => startMove(e, n, el));
+    return el;
+  }
+
+  function portCenters(n) {
+    return {
+      out: { x: n.x + NODE_W, y: n.y + NODE_H / 2 },
+      in:  { x: n.x,          y: n.y + NODE_H / 2 },
+    };
+  }
+  function edgePath(x1, y1, x2, y2) {
+    const dx = Math.max(40, Math.abs(x2 - x1) / 2);
+    return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+  }
+
+  function renderEdges(temp) {
+    const byId = Object.fromEntries(bNodes.map((n) => [n.id, n]));
+    const parts = ['<defs><marker id="cs-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#94a3b8"/></marker></defs>'];
+    bEdges.forEach((e, i) => {
+      const a = byId[e.from], b = byId[e.to];
+      if (!a || !b) return;
+      const p1 = portCenters(a).out, p2 = portCenters(b).in;
+      const d = edgePath(p1.x, p1.y, p2.x, p2.y);
+      parts.push(`<g class="cs-edge-group" data-edge="${i}" style="pointer-events:auto">
+        <path class="cs-edge-hit" d="${d}"></path>
+        <path class="cs-edge" d="${d}" marker-end="url(#cs-arrow)"></path>
+      </g>`);
+    });
+    if (temp) parts.push(`<path class="cs-edge" style="stroke-dasharray:5 4" d="${edgePath(temp.x1, temp.y1, temp.x2, temp.y2)}"></path>`);
+    edgesSvg.innerHTML = parts.join('');
+    edgesSvg.querySelectorAll('[data-edge]').forEach((g) => {
+      g.addEventListener('click', () => { bEdges.splice(+g.dataset.edge, 1); saveLayout(); renderEdges(); });
+    });
+  }
+
+  // ── Add step (persist to backend, place on canvas) ─────────────────────
+  async function addNodeAt(type, x, y) {
+    if (!btc) return;
+    const clampedX = Math.max(0, Math.min(x, 2400 - NODE_W));
+    const clampedY = Math.max(0, Math.min(y, 1600 - NODE_H));
+    const t = NODE_TYPES[type];
+    const name = t.label.slice(0, 16);
+    try {
+      const node = await api(`/test-cases/${btc.pipeline_id}/${btc.id}/`, {
+        method: 'POST',
+        body: { name, description: null, assertions: {}, should_fail: t.should_fail },
+      });
+      bNodes.push({
+        id: node.id, name: node.name, description: node.description || '',
+        assertions: node.assertions || {}, should_fail: !!node.should_fail,
+        x: clampedX, y: clampedY,
+      });
+      saveLayout();
+      renderBuilder();
+    } catch (err) {
+      builderStatus.textContent = err.message;
+    }
+  }
+
+  async function removeNode(id) {
+    if (!btc) return;
+    try {
+      await api(`/test-cases/${btc.pipeline_id}/${btc.id}/nodes/${id}`, { method: 'DELETE' });
+      bNodes = bNodes.filter((n) => n.id !== id);
+      bEdges = bEdges.filter((e) => e.from !== id && e.to !== id);
+      if (selectedId === id) selectedId = null;
+      saveLayout();
+      renderBuilder();
+    } catch (err) {
+      builderStatus.textContent = err.message;
+    }
+  }
+
+  // ── Drag a palette item onto the canvas ────────────────────────────────
+  canvasEl.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/node-type')) e.preventDefault(); });
+  canvasEl.addEventListener('drop', (e) => {
+    const type = e.dataTransfer.getData('text/node-type');
+    if (!type || !NODE_TYPES[type]) return;
+    e.preventDefault();
+    const p = worldPoint(e.clientX, e.clientY);
+    addNodeAt(type, p.x - NODE_W / 2, p.y - NODE_H / 2);
+  });
+
+  // ── Move a step ────────────────────────────────────────────────────────
+  function startMove(e, n, el) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    selectedId = n.id;
+    nodesLayer.querySelectorAll('.cs-node').forEach((x) => x.classList.toggle('selected', x.dataset.id === n.id));
+    const start = worldPoint(e.clientX, e.clientY);
+    const origin = { x: n.x, y: n.y };
+    el.setPointerCapture(e.pointerId);
+    let moved = false;
+    function move(ev) {
+      const p = worldPoint(ev.clientX, ev.clientY);
+      if (!moved && Math.abs(p.x - start.x) < 3 && Math.abs(p.y - start.y) < 3) return;
+      n.x = Math.max(0, Math.min(origin.x + (p.x - start.x), 2400 - NODE_W));
+      n.y = Math.max(0, Math.min(origin.y + (p.y - start.y), 1600 - NODE_H));
+      el.style.left = n.x + 'px';
+      el.style.top = n.y + 'px';
+      moved = true;
+      renderEdges();
+    }
+    function up() {
+      el.releasePointerCapture(e.pointerId);
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      if (moved) saveLayout();
+      else openConfig(n.id);
+    }
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+  }
+
+  // ── Draw a connection between two steps ────────────────────────────────
+  function startConnect(e, fromId) {
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const from = bNodes.find((n) => n.id === fromId);
+    const p1 = portCenters(from).out;
+    function move(ev) {
+      const p = worldPoint(ev.clientX, ev.clientY);
+      renderEdges({ x1: p1.x, y1: p1.y, x2: p.x, y2: p.y });
+    }
+    function up(ev) {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      const target = document.elementFromPoint(ev.clientX, ev.clientY);
+      const port = target && target.closest('[data-inport]');
+      if (port) {
+        const toId = port.dataset.id;
+        if (toId !== fromId && !bEdges.some((x) => x.from === fromId && x.to === toId)) {
+          bEdges.push({ from: fromId, to: toId });
+          saveLayout();
+        }
+      }
+      renderEdges();
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  // Click empty canvas to deselect.
+  canvasEl.addEventListener('pointerdown', (e) => {
+    if (e.target === canvasEl || e.target === worldEl || e.target === nodesLayer) {
+      selectedId = null;
+      nodesLayer.querySelectorAll('.cs-node.selected').forEach((x) => x.classList.remove('selected'));
+    }
+  });
+
+  // ── Step config panel ──────────────────────────────────────────────────
+  const cfgBackdrop = document.getElementById('cfg-backdrop');
+  const cfgPanel = document.getElementById('cfg-panel');
+  const cfgForm = document.getElementById('cfg-form');
+  const cfgFields = document.getElementById('cfg-fields');
+  const cfgName = document.getElementById('cfg-name');
+  const cfgDesc = document.getElementById('cfg-desc');
+  const cfgShouldFail = document.getElementById('cfg-should-fail');
+  const cfgIcon = document.getElementById('cfg-icon');
+  const cfgType = document.getElementById('cfg-type');
+  const cfgError = cfgForm.querySelector('.cfg-error');
+  const cfgDelete = document.getElementById('cfg-delete');
+  let cfgNodeId = null;
+
+  function setCfgError(m) { cfgError.textContent = m || ''; cfgError.classList.toggle('hidden', !m); }
+
+  function fieldInput(f, value) {
+    const wrap = document.createElement('div');
+    const label = document.createElement('label');
+    label.className = 'block text-sm font-medium text-neutral-800 dark:text-neutral-200';
+    label.textContent = f.label;
+    label.htmlFor = 'cfgf-' + f.key;
+    const base = 'mt-2 block w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2.5 text-sm placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
+    let input;
+    if (f.type === 'select') {
+      input = document.createElement('select');
+      input.innerHTML = '<option value="">—</option>' + f.options.map((o) => `<option value="${o}">${o}</option>`).join('');
+    } else {
+      input = document.createElement('input'); input.type = f.type;
+    }
+    input.id = 'cfgf-' + f.key;
+    input.className = base;
+    input.dataset.key = f.key;
+    input.dataset.ftype = f.type;
+    if (f.placeholder) input.placeholder = f.placeholder;
+    if (value != null) input.value = value;
+    wrap.append(label, input);
+    return wrap;
+  }
+
+  function renderCfgFields(node) {
+    cfgFields.replaceChildren(...CONFIG_FIELDS.map((f) => fieldInput(f, node.assertions?.[f.key])));
+  }
+
+  function openConfig(id) {
+    const node = bNodes.find((n) => n.id === id);
+    if (!node) return;
+    cfgNodeId = id;
+    const t = NODE_TYPES[typeOf(node)];
+    cfgIcon.style.background = t.accent;
+    cfgIcon.innerHTML = iconSvg(typeOf(node), 'h-[18px] w-[18px]');
+    cfgType.textContent = t.label;
+    cfgName.value = node.name || '';
+    cfgDesc.value = node.description || '';
+    cfgShouldFail.checked = !!node.should_fail;
+    setCfgError('');
+    renderCfgFields(node);
+    cfgBackdrop.classList.remove('hidden');
+    cfgPanel.classList.remove('translate-x-full');
+    cfgPanel.setAttribute('aria-hidden', 'false');
+    cfgName.focus();
+  }
+
+  function closeConfig() {
+    cfgPanel.classList.add('translate-x-full');
+    cfgPanel.setAttribute('aria-hidden', 'true');
+    cfgBackdrop.classList.add('hidden');
+    cfgNodeId = null;
+  }
+
+  function collectAssertions() {
+    const assertions = {};
+    cfgFields.querySelectorAll('[data-key]').forEach((el) => {
+      const v = el.value.trim();
+      if (v !== '') assertions[el.dataset.key] = v;
+    });
+    return assertions;
+  }
+
+  cfgForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!btc || !cfgNodeId) return;
+    const node = bNodes.find((n) => n.id === cfgNodeId);
+    if (!node) return;
+    const submit = cfgForm.querySelector('button[type="submit"]');
+    submit.disabled = true; setCfgError('');
+    const body = {
+      name: (cfgName.value.trim() || NODE_TYPES[typeOf(node)].label).slice(0, 16),
+      description: cfgDesc.value.trim() || null,
+      should_fail: cfgShouldFail.checked,
+      assertions: collectAssertions(),
+    };
+    try {
+      const updated = await api(`/test-cases/${btc.pipeline_id}/${btc.id}/nodes/${cfgNodeId}`, { method: 'PATCH', body });
+      node.name = updated.name;
+      node.description = updated.description || '';
+      node.assertions = updated.assertions || {};
+      node.should_fail = !!updated.should_fail;
+      renderBuilder();
+      closeConfig();
+    } catch (err) {
+      setCfgError(err.message);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  cfgDelete.addEventListener('click', () => { const id = cfgNodeId; closeConfig(); if (id) removeNode(id); });
+  document.getElementById('cfg-close').addEventListener('click', closeConfig);
+  cfgBackdrop.addEventListener('click', closeConfig);
+
+  // Delete test case from the builder.
+  builderDelete.addEventListener('click', async () => {
+    if (!btc) return;
+    if (!confirm(`Delete "${btc.name}"? This can't be undone.`)) return;
+    builderDelete.disabled = true;
+    try {
+      await api(`/test-cases/${btc.pipeline_id}/${btc.id}`, { method: 'DELETE' });
+      try { localStorage.removeItem(layoutKey(btc.id)); } catch {}
+      testCases = testCases.filter((tc) => tc.id !== btc.id);
+      renderList();
+      closeBuilder();
+    } catch (err) {
+      builderStatus.textContent = err.message;
+    } finally {
+      builderDelete.disabled = false;
+    }
+  });
+
+  // Escape: close the config panel first, then the builder.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || panelOpen) return;
+    if (cfgNodeId) { closeConfig(); return; }
+    if (!builderEl.classList.contains('hidden')) closeBuilder();
+  });
+
+  // ── Go ────────────────────────────────────────────────────────────────
+  loadTestCases();
+</script>
 {% endblock %}

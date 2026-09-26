@@ -42,7 +42,6 @@ class TestCase(TimestampMixin, Base):
     id = Column(UUID(as_uuid=True), default=generate_uuid, primary_key=True)
     name = Column(String(32), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id" ,ondelete="CASCADE"), nullable=False)
     pipeline_id = Column(UUID(as_uuid=True), ForeignKey("pipelines.id", ondelete="CASCADE"), nullable=False)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 

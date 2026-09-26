@@ -23,7 +23,7 @@ from api.common.db import (
     TimestampMixin,
 )
 
-from api.common.enums import NodeType
+from api.common.enums import PipelineNodeType
 
 class Pipeline(TimestampMixin, Base):
     __tablename__ = "pipelines"
@@ -37,11 +37,17 @@ class Pipeline(TimestampMixin, Base):
     project = relationship("Project", back_populates="pipelines")
     tests = relationship("TestCase",  back_populates="pipeline")
 
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_pipline_name_user_id",),
+    )
+
 class PipelineNode(TimestampMixin, Base):
     __tablename__ = "pipeline_nodes"
     id = Column(UUID(as_uuid=True), default=generate_uuid, primary_key=True)
+    name = Column(String(16), nullable=False)
     pipeline_id = Column(UUID(as_uuid=True), ForeignKey("pipelines.id", ondelete="CASCADE"), nullable=False)
-    node_type = Column(ENUM(NodeType), nullable=False)
+    node_type = Column(ENUM(PipelineNodeType), nullable=False)
+    config = Column(JSONB(), default=dict, nullable=False)
     deleted_at = Column(DateTime(timezone=True), index=True, nullable=True)
 
     pipeline = relationship("Pipeline", back_populates="nodes")

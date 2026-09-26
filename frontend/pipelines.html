@@ -2,6 +2,44 @@
 {% set active = 'pipelines' %}
 {% block title %}Pipelines · callstack{% endblock %}
 
+{% block head %}
+<style>
+  /* Builder canvas: subtle dotted grid, theme-aware. */
+  .cs-canvas {
+    background-color: #fafafa;
+    background-image: radial-gradient(#d4d4d4 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  html.dark .cs-canvas {
+    background-color: #0a0a0a;
+    background-image: radial-gradient(#262626 1px, transparent 1px);
+  }
+  /* Connection ports on a node. */
+  .cs-port {
+    position: absolute;
+    top: 50%;
+    height: 14px;
+    width: 14px;
+    transform: translateY(-50%);
+    border-radius: 9999px;
+    border: 2px solid #fff;
+    background: var(--port-accent, #1E3FBF);
+    cursor: crosshair;
+    transition: transform .12s ease;
+  }
+  html.dark .cs-port { border-color: #171717; }
+  .cs-port:hover { transform: translateY(-50%) scale(1.35); }
+  .cs-port.in  { left: -7px; }
+  .cs-port.out { right: -7px; }
+  .cs-node { touch-action: none; }
+  .cs-node.selected { box-shadow: 0 0 0 2px #1E3FBF, 0 8px 24px -8px rgba(0,0,0,.25); }
+  .cs-edge-hit { stroke: transparent; stroke-width: 16; fill: none; cursor: pointer; }
+  .cs-edge { fill: none; stroke: #94a3b8; stroke-width: 2; }
+  html.dark .cs-edge { stroke: #52525b; }
+  .cs-edge-group:hover .cs-edge { stroke: #1E3FBF; stroke-width: 2.5; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6">
   <div class="flex items-start justify-between gap-6">
@@ -9,15 +47,838 @@
       <h1 class="text-2xl font-semibold tracking-tight">Pipelines</h1>
       <p class="mt-2 max-w-lg text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">Chain calls into runs you can replay, compare and monitor.</p>
     </div>
-    <button type="button"
+    <button type="button" id="new-pipeline"
             class="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2">
       New pipeline
     </button>
   </div>
 
-  <div class="mt-10 flex flex-col items-center justify-center rounded-xl border border-dashed border-neutral-200 dark:border-neutral-800 px-6 py-20 text-center">
-    <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">No pipelines yet</p>
-    <p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Nothing here yet. It'll show up as soon as you create one.</p>
+  <!-- Loading -->
+  <div id="pipelines-loading" class="mt-10">
+    <div class="grid gap-3 sm:grid-cols-2">
+      <div class="h-[72px] animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800"></div>
+      <div class="h-[72px] animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800"></div>
+    </div>
   </div>
+
+  <!-- Empty -->
+  <div id="pipelines-empty" class="mt-10 hidden">
+    <div class="flex flex-col items-center justify-center rounded-xl border border-dashed border-neutral-200 dark:border-neutral-800 px-6 py-20 text-center">
+      <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">No pipelines yet</p>
+      <p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Create your first pipeline, then wire up nodes in the visual builder.</p>
+      <button type="button" id="empty-new-pipeline"
+              class="mt-5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2">
+        New pipeline
+      </button>
+    </div>
+  </div>
+
+  <!-- List -->
+  <div id="pipelines-list" class="mt-10 hidden">
+    <div id="pipelines-grid" class="grid gap-3 sm:grid-cols-2"></div>
+  </div>
+
+  <p id="pipelines-error" class="mt-10 hidden text-sm text-red-600 dark:text-red-400" role="alert"></p>
 </div>
+
+<!-- ───────── Drawer backdrop ───────── -->
+<div id="panel-backdrop" class="fixed inset-0 z-40 hidden bg-neutral-900/40 backdrop-blur-sm"></div>
+
+<!-- ───────── New pipeline panel ───────── -->
+<aside id="panel-create" aria-hidden="true" aria-label="New pipeline"
+       class="fixed inset-y-0 right-0 z-50 flex w-full max-w-md translate-x-full flex-col bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-neutral-800 transition-transform duration-200 ease-out">
+  <div class="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 dark:border-neutral-800 px-5">
+    <h2 class="text-base font-semibold tracking-tight">New pipeline</h2>
+    <button type="button" data-close-panel aria-label="Close"
+            class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 dark:text-neutral-500 transition hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+      <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+    </button>
+  </div>
+
+  <form id="form-create" class="flex min-h-0 flex-1 flex-col" novalidate>
+    <div class="flex-1 space-y-6 overflow-y-auto p-5">
+      <div>
+        <label for="create-name" class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Name</label>
+        <input id="create-name" name="name" type="text" required maxlength="16" autocomplete="off"
+               class="mt-2 block w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2.5 text-sm placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+               placeholder="e.g. checkout-qa" />
+        <p class="mt-1.5 text-xs text-neutral-400 dark:text-neutral-500">Up to 16 characters, unique across your pipelines.</p>
+      </div>
+
+      <div>
+        <label for="create-project" class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Project</label>
+        <select id="create-project" name="project" required
+                class="mt-2 block w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+        </select>
+        <p id="create-no-projects" class="mt-1.5 hidden text-xs text-red-600 dark:text-red-400">
+          You need a project first. <a href="/projects" class="font-medium underline">Create one →</a>
+        </p>
+      </div>
+
+      <p class="create-error hidden text-sm text-red-600 dark:text-red-400" role="alert"></p>
+    </div>
+
+    <div class="flex shrink-0 items-center justify-end gap-3 border-t border-neutral-200 dark:border-neutral-800 p-5">
+      <button type="button" data-close-panel
+              class="rounded-lg border border-neutral-200 dark:border-neutral-800 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-200 transition hover:bg-neutral-50 dark:hover:bg-neutral-800">
+        Cancel
+      </button>
+      <button type="submit" id="create-submit"
+              class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2 disabled:opacity-60">
+        Create pipeline
+      </button>
+    </div>
+  </form>
+</aside>
+
+<!-- ───────── Visual builder (full screen) ───────── -->
+<section id="builder" aria-hidden="true" aria-label="Pipeline builder"
+         class="fixed inset-0 z-[60] hidden flex-col bg-white dark:bg-neutral-950">
+  <!-- Header -->
+  <header class="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800 px-4">
+    <div class="flex min-w-0 items-center gap-3">
+      <button type="button" id="builder-close" aria-label="Back to pipelines"
+              class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-500 transition hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+      </button>
+      <div class="min-w-0">
+        <h2 id="builder-title" class="truncate text-sm font-semibold tracking-tight">Pipeline</h2>
+        <p id="builder-status" class="truncate text-xs text-neutral-400 dark:text-neutral-500">0 nodes</p>
+      </div>
+    </div>
+    <button type="button" id="builder-delete"
+            class="rounded-lg border border-red-200 dark:border-red-900/60 px-3 py-1.5 text-sm font-medium text-red-600 dark:text-red-400 transition hover:bg-red-50 dark:hover:bg-red-950/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 disabled:opacity-60">
+      Delete
+    </button>
+  </header>
+
+  <div class="flex min-h-0 flex-1 flex-col sm:flex-row">
+    <!-- Palette -->
+    <aside class="flex w-full shrink-0 flex-col border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 sm:w-60 sm:border-b-0 sm:border-r">
+      <div class="hidden border-b border-neutral-200 dark:border-neutral-800 px-4 py-3 sm:block">
+        <p class="text-xs font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">Nodes</p>
+        <p class="mt-1 text-xs text-neutral-400 dark:text-neutral-500">Drag onto the canvas, or click to add.</p>
+      </div>
+      <div id="palette" class="flex flex-1 gap-2 overflow-x-auto p-3 sm:flex-col sm:gap-2 sm:overflow-x-visible sm:overflow-y-auto"></div>
+    </aside>
+
+    <!-- Canvas -->
+    <div id="canvas" class="cs-canvas relative min-w-0 flex-1 overflow-auto">
+      <div id="world" class="relative" style="width:2400px;height:1600px;">
+        <svg id="edges" class="pointer-events-none absolute inset-0 h-full w-full" width="2400" height="1600"></svg>
+        <div id="nodes" class="absolute inset-0"></div>
+      </div>
+      <!-- Empty hint -->
+      <div id="builder-empty" class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+        <div class="rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/70 px-6 py-8 backdrop-blur-sm">
+          <p class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Empty canvas</p>
+          <p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Drag a node from the left to get started.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Node config panel -->
+  <div id="cfg-backdrop" class="fixed inset-0 z-[65] hidden bg-neutral-900/40 backdrop-blur-sm"></div>
+  <aside id="cfg-panel" aria-hidden="true" aria-label="Node configuration"
+         class="fixed inset-y-0 right-0 z-[70] flex w-full max-w-sm translate-x-full flex-col bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-neutral-800 transition-transform duration-200 ease-out">
+    <div class="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 dark:border-neutral-800 px-5">
+      <div class="flex min-w-0 items-center gap-3">
+        <div id="cfg-icon" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white"></div>
+        <div class="min-w-0">
+          <h2 class="truncate text-sm font-semibold tracking-tight">Configure node</h2>
+          <p id="cfg-type" class="truncate text-xs text-neutral-400 dark:text-neutral-500"></p>
+        </div>
+      </div>
+      <button type="button" id="cfg-close" aria-label="Close"
+              class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 dark:text-neutral-500 transition hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+
+    <form id="cfg-form" class="flex min-h-0 flex-1 flex-col" novalidate>
+      <div class="flex-1 space-y-5 overflow-y-auto p-5">
+        <div>
+          <label for="cfg-name" class="block text-sm font-medium text-neutral-800 dark:text-neutral-200">Name</label>
+          <input id="cfg-name" name="name" type="text" maxlength="16" autocomplete="off"
+                 class="mt-2 block w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2.5 text-sm placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
+        </div>
+        <div id="cfg-fields" class="space-y-5"></div>
+        <p class="cfg-error hidden text-sm text-red-600 dark:text-red-400" role="alert"></p>
+      </div>
+      <div class="flex shrink-0 items-center justify-between gap-3 border-t border-neutral-200 dark:border-neutral-800 p-5">
+        <button type="button" id="cfg-delete"
+                class="rounded-lg border border-red-200 dark:border-red-900/60 px-3.5 py-2 text-sm font-medium text-red-600 dark:text-red-400 transition hover:bg-red-50 dark:hover:bg-red-950/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 disabled:opacity-60">
+          Delete
+        </button>
+        <button type="submit"
+                class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2 disabled:opacity-60">
+          Save
+        </button>
+      </div>
+    </form>
+  </aside>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // ── Node type registry ─────────────────────────────────────────────────
+  const NODE_TYPES = {
+    llm:    { label: 'LLM',       desc: 'Call a language model',   accent: '#1E3FBF',
+              icon: 'M7 7h10v10H7zM9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2' },
+    voice:  { label: 'Voice',     desc: 'Speech in / speech out',  accent: '#7C3AED',
+              icon: 'M12 15.75a3 3 0 0 0 3-3V4.5a3 3 0 1 0-6 0v8.25a3 3 0 0 0 3 3zM6 10.5v1.5a6 6 0 0 0 12 0v-1.5M12 18.75v3M8.25 21.75h7.5' },
+    assert: { label: 'Assertion', desc: 'Check the output',        accent: '#059669',
+              icon: 'm9 12.75 2.25 2.25 4.5-4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z' },
+    fail:   { label: 'Fail',      desc: 'Stop and mark failed',    accent: '#DC2626',
+              icon: 'm9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z' },
+  };
+  const NODE_W = 184, NODE_H = 68;
+
+  // Per-type config fields rendered in the node config panel. Values are stored
+  // as-is inside the node's `config` JSONB.
+  const CONFIG_FIELDS = {
+    llm: [
+      { key: 'model',       label: 'Model',         type: 'model' },
+      { key: 'system',      label: 'System prompt', type: 'textarea', placeholder: 'You are a helpful assistant…' },
+      { key: 'temperature', label: 'Temperature',   type: 'number',   step: '0.1', min: 0, max: 2, placeholder: '0.7' },
+    ],
+    voice: [
+      { key: 'voice',    label: 'Voice',    type: 'text', placeholder: 'e.g. alloy' },
+      { key: 'language', label: 'Language', type: 'text', placeholder: 'e.g. en' },
+    ],
+    assert: [
+      { key: 'kind',     label: 'Assertion', type: 'select', options: ['contains', 'not_contains', 'equals', 'regex'] },
+      { key: 'expected', label: 'Expected',  type: 'text',   placeholder: 'Expected output' },
+    ],
+    fail: [
+      { key: 'message', label: 'Failure message', type: 'text', placeholder: 'Why this node fails' },
+    ],
+  };
+
+  function iconSvg(type, cls) {
+    const t = NODE_TYPES[type];
+    return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="${t.icon}"/></svg>`;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // ── LLM models (from GET /models/) ──────────────────────────────────────
+  // Prices are USD per 1M tokens (e.g. prompt: 1 → $1 / 1M input tokens).
+  let modelsCache = null;
+  let modelsPromise = null;
+  async function loadModels() {
+    if (modelsCache) return modelsCache;
+    if (!modelsPromise) {
+      modelsPromise = (async () => {
+        const out = [];
+        let page = 1, pages = 1;
+        do {
+          const res = await api(`/models/?page=${page}&limit=100`);
+          (res.data || []).forEach((m) => out.push({ name: m.name, input: m.price?.input, output: m.price?.output }));
+          pages = res.pagination?.total_pages || 1;
+          page += 1;
+        } while (page <= pages);
+        modelsCache = out;
+        return out;
+      })().catch((err) => { modelsPromise = null; throw err; });
+    }
+    return modelsPromise;
+  }
+
+  function fmtPrice(v) { return (v == null || v === '') ? '—' : '$' + Number(v); }
+  function modelCost(m) { return `${fmtPrice(m.input)} in · ${fmtPrice(m.output)} out /1M`; }
+
+  async function fillModelOptions(select, current) {
+    const cur = current || '';
+    try {
+      const models = await loadModels();
+      select.innerHTML = '<option value="">Select a model…</option>' +
+        models.map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)} — ${modelCost(m)}</option>`).join('');
+      // Keep a previously-saved model selectable even if it's no longer listed.
+      if (cur && !models.some((m) => m.name === cur)) {
+        select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(cur)}">${escapeHtml(cur)}</option>`);
+      }
+      select.value = cur;
+    } catch {
+      // Leave the fallback options (placeholder + current value) in place.
+    }
+  }
+
+  // ── Drawer (side panel) controller ─────────────────────────────────────
+  const panelBackdrop = document.getElementById('panel-backdrop');
+  const panelCreate = document.getElementById('panel-create');
+  let panelOpen = false;
+
+  function showCreatePanel() {
+    panelCreate.classList.remove('translate-x-full');
+    panelCreate.setAttribute('aria-hidden', 'false');
+    panelBackdrop.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    panelOpen = true;
+  }
+  function closePanels() {
+    panelCreate.classList.add('translate-x-full');
+    panelCreate.setAttribute('aria-hidden', 'true');
+    panelBackdrop.classList.add('hidden');
+    document.body.style.overflow = '';
+    panelOpen = false;
+  }
+  panelBackdrop.addEventListener('click', closePanels);
+  document.querySelectorAll('[data-close-panel]').forEach((b) => b.addEventListener('click', closePanels));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && panelOpen) closePanels(); });
+
+  // ── Pipeline list ───────────────────────────────────────────────────────
+  const loadingEl = document.getElementById('pipelines-loading');
+  const emptyEl = document.getElementById('pipelines-empty');
+  const listEl = document.getElementById('pipelines-list');
+  const gridEl = document.getElementById('pipelines-grid');
+  const listErrorEl = document.getElementById('pipelines-error');
+  let pipelines = [];
+  let projectsById = {};
+
+  function renderList() {
+    loadingEl.classList.add('hidden');
+    listErrorEl.classList.add('hidden');
+    const has = pipelines.length > 0;
+    emptyEl.classList.toggle('hidden', has);
+    listEl.classList.toggle('hidden', !has);
+    if (has) gridEl.replaceChildren(...pipelines.map(pipelineCard));
+  }
+
+  function pipelineCard(p) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'flex w-full items-center gap-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 text-left transition hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20';
+    const badge = document.createElement('div');
+    badge.className = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cream text-primary';
+    badge.innerHTML = '<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"/></svg>';
+    const text = document.createElement('div');
+    text.className = 'min-w-0';
+    const name = document.createElement('p');
+    name.className = 'truncate text-sm font-medium text-neutral-900 dark:text-neutral-100';
+    name.textContent = p.name;
+    const sub = document.createElement('p');
+    sub.className = 'truncate text-xs text-neutral-400 dark:text-neutral-500';
+    sub.textContent = projectsById[p.project_id]?.name || 'Project';
+    text.append(name, sub);
+    btn.append(badge, text);
+    btn.addEventListener('click', () => openBuilder(p));
+    return btn;
+  }
+
+  async function loadPipelines() {
+    try {
+      const [pipeData, projData] = await Promise.all([
+        api('/pipelines/'),
+        api('/projects/').catch(() => ({ projects: [] })),
+      ]);
+      pipelines = pipeData.pipelines || [];
+      projectsById = Object.fromEntries((projData.projects || []).map((p) => [p.id, p]));
+      renderList();
+    } catch (err) {
+      loadingEl.classList.add('hidden');
+      listErrorEl.textContent = err.message;
+      listErrorEl.classList.remove('hidden');
+    }
+  }
+
+  // ── Create pipeline ──────────────────────────────────────────────────────
+  const formCreate = document.getElementById('form-create');
+  const createError = formCreate.querySelector('.create-error');
+  const createProject = document.getElementById('create-project');
+  const createNoProjects = document.getElementById('create-no-projects');
+  const createSubmit = document.getElementById('create-submit');
+
+  function setCreateError(m) { createError.textContent = m || ''; createError.classList.toggle('hidden', !m); }
+
+  async function openCreate() {
+    formCreate.reset();
+    setCreateError('');
+    showCreatePanel();
+    // Populate the project selector fresh each time.
+    createProject.innerHTML = '<option value="" disabled selected>Loading projects…</option>';
+    try {
+      const { projects = [] } = await api('/projects/');
+      projectsById = Object.fromEntries(projects.map((p) => [p.id, p]));
+      if (!projects.length) {
+        createProject.innerHTML = '<option value="" disabled selected>No projects</option>';
+        createProject.disabled = true;
+        createNoProjects.classList.remove('hidden');
+        createSubmit.disabled = true;
+      } else {
+        createProject.disabled = false;
+        createNoProjects.classList.add('hidden');
+        createSubmit.disabled = false;
+        createProject.innerHTML = '<option value="" disabled selected>Select a project</option>' +
+          projects.map((p) => `<option value="${p.id}">${p.name.replace(/</g, '&lt;')}</option>`).join('');
+      }
+    } catch (err) {
+      createProject.innerHTML = '<option value="" disabled selected>Failed to load</option>';
+      setCreateError(err.message);
+    }
+    document.getElementById('create-name').focus();
+  }
+  document.getElementById('new-pipeline').addEventListener('click', openCreate);
+  document.getElementById('empty-new-pipeline').addEventListener('click', openCreate);
+
+  formCreate.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!formCreate.reportValidity()) return;
+    const projectId = createProject.value;
+    if (!projectId) { setCreateError('Choose a project for this pipeline.'); return; }
+    const submit = createSubmit;
+    const prev = submit.textContent;
+    submit.disabled = true; submit.textContent = 'Creating…'; setCreateError('');
+    try {
+      const pipeline = await api(`/pipelines/${projectId}`, {
+        method: 'POST', body: { name: formCreate.name.value.trim() },
+      });
+      pipelines = [pipeline, ...pipelines];
+      renderList();
+      closePanels();
+      openBuilder(pipeline);   // jump straight into the builder
+    } catch (err) {
+      setCreateError(err.message);
+    } finally {
+      submit.disabled = false; submit.textContent = prev;
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  //  Visual builder
+  // ══════════════════════════════════════════════════════════════════════
+  const builderEl = document.getElementById('builder');
+  const builderTitle = document.getElementById('builder-title');
+  const builderStatus = document.getElementById('builder-status');
+  const builderEmpty = document.getElementById('builder-empty');
+  const builderDelete = document.getElementById('builder-delete');
+  const paletteEl = document.getElementById('palette');
+  const canvasEl = document.getElementById('canvas');
+  const worldEl = document.getElementById('world');
+  const nodesLayer = document.getElementById('nodes');
+  const edgesSvg = document.getElementById('edges');
+
+  let bp = null;          // current pipeline
+  let bNodes = [];        // [{id, node_type, x, y}]
+  let bEdges = [];        // [{from, to}]
+  let selectedId = null;
+
+  const layoutKey = (id) => `cs_pipeline_layout_${id}`;
+  function saveLayout() {
+    if (!bp) return;
+    try {
+      const positions = {};
+      bNodes.forEach((n) => { positions[n.id] = { x: n.x, y: n.y }; });
+      localStorage.setItem(layoutKey(bp.id), JSON.stringify({ positions, edges: bEdges }));
+    } catch {}
+  }
+  function readLayout(id) {
+    try { return JSON.parse(localStorage.getItem(layoutKey(id))) || {}; } catch { return {}; }
+  }
+
+  // Build the draggable palette once.
+  function renderPalette() {
+    paletteEl.replaceChildren(...Object.entries(NODE_TYPES).map(([type, t]) => {
+      const item = document.createElement('div');
+      item.draggable = true;
+      item.dataset.type = type;
+      item.className = 'group flex w-48 shrink-0 cursor-grab items-center gap-3 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-2.5 transition hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm active:cursor-grabbing sm:w-auto';
+      const ic = document.createElement('div');
+      ic.className = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white';
+      ic.style.background = t.accent;
+      ic.innerHTML = iconSvg(type, 'h-[18px] w-[18px]');
+      const tx = document.createElement('div');
+      tx.className = 'min-w-0';
+      tx.innerHTML = `<p class="text-sm font-medium text-neutral-800 dark:text-neutral-100">${t.label}</p><p class="truncate text-xs text-neutral-400 dark:text-neutral-500">${t.desc}</p>`;
+      item.append(ic, tx);
+      item.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/node-type', type));
+      item.addEventListener('click', () => addNodeAt(type, 80 + Math.random() * 60, 80 + Math.random() * 60));
+      return item;
+    }));
+  }
+
+  function worldPoint(clientX, clientY) {
+    const r = worldEl.getBoundingClientRect();
+    return { x: clientX - r.left, y: clientY - r.top };
+  }
+
+  async function openBuilder(pipeline) {
+    bp = pipeline;
+    selectedId = null;
+    builderTitle.textContent = pipeline.name;
+    builderStatus.textContent = 'Loading…';
+    nodesLayer.replaceChildren();
+    edgesSvg.innerHTML = '';
+    builderEl.classList.remove('hidden');
+    builderEl.classList.add('flex');
+    builderEl.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    renderPalette();
+    loadModels().catch(() => {});   // warm the model list for LLM config panels
+    try {
+      const { nodes = [] } = await api(`/nodes/${pipeline.id}/`);
+      const saved = readLayout(pipeline.id);
+      const pos = saved.positions || {};
+      bNodes = nodes.map((n, i) => ({
+        id: n.id,
+        node_type: n.node_type,
+        name: n.name || '',
+        config: n.config || {},
+        x: pos[n.id]?.x ?? (60 + (i % 3) * 230),
+        y: pos[n.id]?.y ?? (60 + Math.floor(i / 3) * 120),
+      }));
+      const ids = new Set(bNodes.map((n) => n.id));
+      bEdges = (saved.edges || []).filter((e) => ids.has(e.from) && ids.has(e.to));
+      renderBuilder();
+    } catch (err) {
+      builderStatus.textContent = err.message;
+    }
+  }
+
+  function closeBuilder() {
+    closeConfig();
+    builderEl.classList.add('hidden');
+    builderEl.classList.remove('flex');
+    builderEl.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    bp = null;
+  }
+  document.getElementById('builder-close').addEventListener('click', closeBuilder);
+
+  function renderBuilder() {
+    builderEmpty.classList.toggle('hidden', bNodes.length > 0);
+    builderStatus.textContent = `${bNodes.length} node${bNodes.length === 1 ? '' : 's'} · autosaved`;
+    // Nodes
+    nodesLayer.replaceChildren(...bNodes.map(nodeEl));
+    renderEdges();
+  }
+
+  function nodeEl(n) {
+    const t = NODE_TYPES[n.node_type] || { label: n.node_type, accent: '#64748b', icon: '' };
+    const el = document.createElement('div');
+    el.className = 'cs-node absolute select-none rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-sm' + (n.id === selectedId ? ' selected' : '');
+    el.style.left = n.x + 'px';
+    el.style.top = n.y + 'px';
+    el.style.width = NODE_W + 'px';
+    el.style.height = NODE_H + 'px';
+    el.dataset.id = n.id;
+    el.innerHTML = `
+      <div class="cs-port in"  data-inport  data-id="${n.id}" style="--port-accent:${t.accent}"></div>
+      <div class="cs-port out" data-outport data-id="${n.id}" style="--port-accent:${t.accent}"></div>
+      <div class="flex h-full items-center gap-3 px-3">
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white" style="background:${t.accent}">
+          ${iconSvg(n.node_type, 'h-5 w-5')}
+        </div>
+        <div class="min-w-0">
+          <p class="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">${escapeHtml(n.name || t.label)}</p>
+          <p class="truncate text-xs text-neutral-400 dark:text-neutral-500">${n.node_type}</p>
+        </div>
+        <button type="button" data-del title="Remove node"
+                class="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-neutral-300 dark:text-neutral-600 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+        </button>
+      </div>`;
+    // Delete
+    el.querySelector('[data-del]').addEventListener('pointerdown', (e) => e.stopPropagation());
+    el.querySelector('[data-del]').addEventListener('click', (e) => { e.stopPropagation(); removeNode(n.id); });
+    // Connection start
+    el.querySelector('[data-outport]').addEventListener('pointerdown', (e) => startConnect(e, n.id));
+    // Move / select
+    el.addEventListener('pointerdown', (e) => startMove(e, n, el));
+    return el;
+  }
+
+  function portCenters(n) {
+    return {
+      out: { x: n.x + NODE_W, y: n.y + NODE_H / 2 },
+      in:  { x: n.x,          y: n.y + NODE_H / 2 },
+    };
+  }
+  function edgePath(x1, y1, x2, y2) {
+    const dx = Math.max(40, Math.abs(x2 - x1) / 2);
+    return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+  }
+
+  function renderEdges(temp) {
+    const byId = Object.fromEntries(bNodes.map((n) => [n.id, n]));
+    const parts = ['<defs><marker id="cs-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#94a3b8"/></marker></defs>'];
+    bEdges.forEach((e, i) => {
+      const a = byId[e.from], b = byId[e.to];
+      if (!a || !b) return;
+      const p1 = portCenters(a).out, p2 = portCenters(b).in;
+      const d = edgePath(p1.x, p1.y, p2.x, p2.y);
+      parts.push(`<g class="cs-edge-group" data-edge="${i}" style="pointer-events:auto">
+        <path class="cs-edge-hit" d="${d}"></path>
+        <path class="cs-edge" d="${d}" marker-end="url(#cs-arrow)"></path>
+      </g>`);
+    });
+    if (temp) parts.push(`<path class="cs-edge" style="stroke-dasharray:5 4" d="${edgePath(temp.x1, temp.y1, temp.x2, temp.y2)}"></path>`);
+    edgesSvg.innerHTML = parts.join('');
+    edgesSvg.querySelectorAll('[data-edge]').forEach((g) => {
+      g.addEventListener('click', () => { bEdges.splice(+g.dataset.edge, 1); saveLayout(); renderEdges(); });
+    });
+  }
+
+  // ── Add node (persist type to backend, place on canvas) ────────────────
+  async function addNodeAt(type, x, y) {
+    if (!bp) return;
+    const clampedX = Math.max(0, Math.min(x, 2400 - NODE_W));
+    const clampedY = Math.max(0, Math.min(y, 1600 - NODE_H));
+    const name = (NODE_TYPES[type]?.label || type).slice(0, 16);
+    try {
+      const node = await api(`/nodes/${bp.id}/`, { method: 'POST', body: { node_type: type, name, config: {} } });
+      bNodes.push({ id: node.id, node_type: node.node_type, name: node.name, config: node.config || {}, x: clampedX, y: clampedY });
+      saveLayout();
+      renderBuilder();
+    } catch (err) {
+      builderStatus.textContent = err.message;
+    }
+  }
+
+  async function removeNode(id) {
+    if (!bp) return;
+    try {
+      await api(`/nodes/${bp.id}/${id}`, { method: 'DELETE' });
+      bNodes = bNodes.filter((n) => n.id !== id);
+      bEdges = bEdges.filter((e) => e.from !== id && e.to !== id);
+      if (selectedId === id) selectedId = null;
+      saveLayout();
+      renderBuilder();
+    } catch (err) {
+      builderStatus.textContent = err.message;
+    }
+  }
+
+  // ── Drag a palette item onto the canvas ────────────────────────────────
+  canvasEl.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/node-type')) e.preventDefault(); });
+  canvasEl.addEventListener('drop', (e) => {
+    const type = e.dataTransfer.getData('text/node-type');
+    if (!type || !NODE_TYPES[type]) return;
+    e.preventDefault();
+    const p = worldPoint(e.clientX, e.clientY);
+    addNodeAt(type, p.x - NODE_W / 2, p.y - NODE_H / 2);
+  });
+
+  // ── Move a node ─────────────────────────────────────────────────────────
+  function startMove(e, n, el) {
+    if (e.button !== 0) return;
+    e.preventDefault();   // suppress native text selection while dragging
+    selectedId = n.id;
+    nodesLayer.querySelectorAll('.cs-node').forEach((x) => x.classList.toggle('selected', x.dataset.id === n.id));
+    const start = worldPoint(e.clientX, e.clientY);
+    const origin = { x: n.x, y: n.y };
+    el.setPointerCapture(e.pointerId);
+    let moved = false;
+    function move(ev) {
+      const p = worldPoint(ev.clientX, ev.clientY);
+      // Ignore sub-pixel jitter so a plain click still counts as a click.
+      if (!moved && Math.abs(p.x - start.x) < 3 && Math.abs(p.y - start.y) < 3) return;
+      n.x = Math.max(0, Math.min(origin.x + (p.x - start.x), 2400 - NODE_W));
+      n.y = Math.max(0, Math.min(origin.y + (p.y - start.y), 1600 - NODE_H));
+      el.style.left = n.x + 'px';
+      el.style.top = n.y + 'px';
+      moved = true;
+      renderEdges();
+    }
+    function up(ev) {
+      el.releasePointerCapture(e.pointerId);
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      if (moved) saveLayout();
+      else openConfig(n.id);   // a click (no drag) opens the config panel
+    }
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+  }
+
+  // ── Draw a connection between two nodes ────────────────────────────────
+  function startConnect(e, fromId) {
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const from = bNodes.find((n) => n.id === fromId);
+    const p1 = portCenters(from).out;
+    function move(ev) {
+      const p = worldPoint(ev.clientX, ev.clientY);
+      renderEdges({ x1: p1.x, y1: p1.y, x2: p.x, y2: p.y });
+    }
+    function up(ev) {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      const target = document.elementFromPoint(ev.clientX, ev.clientY);
+      const port = target && target.closest('[data-inport]');
+      if (port) {
+        const toId = port.dataset.id;
+        if (toId !== fromId && !bEdges.some((x) => x.from === fromId && x.to === toId)) {
+          bEdges.push({ from: fromId, to: toId });
+          saveLayout();
+        }
+      }
+      renderEdges();
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  // Click empty canvas to deselect.
+  canvasEl.addEventListener('pointerdown', (e) => {
+    if (e.target === canvasEl || e.target === worldEl || e.target === nodesLayer) {
+      selectedId = null;
+      nodesLayer.querySelectorAll('.cs-node.selected').forEach((x) => x.classList.remove('selected'));
+    }
+  });
+
+  // ── Node config panel ──────────────────────────────────────────────────
+  const cfgBackdrop = document.getElementById('cfg-backdrop');
+  const cfgPanel = document.getElementById('cfg-panel');
+  const cfgForm = document.getElementById('cfg-form');
+  const cfgFields = document.getElementById('cfg-fields');
+  const cfgName = document.getElementById('cfg-name');
+  const cfgIcon = document.getElementById('cfg-icon');
+  const cfgType = document.getElementById('cfg-type');
+  const cfgError = cfgForm.querySelector('.cfg-error');
+  const cfgDelete = document.getElementById('cfg-delete');
+  let cfgNodeId = null;
+
+  function setCfgError(m) { cfgError.textContent = m || ''; cfgError.classList.toggle('hidden', !m); }
+
+  function fieldInput(f, value) {
+    const wrap = document.createElement('div');
+    const label = document.createElement('label');
+    label.className = 'block text-sm font-medium text-neutral-800 dark:text-neutral-200';
+    label.textContent = f.label;
+    label.htmlFor = 'cfgf-' + f.key;
+    const base = 'mt-2 block w-full rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3.5 py-2.5 text-sm placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
+    let input;
+    if (f.type === 'textarea') {
+      input = document.createElement('textarea'); input.rows = 4;
+    } else if (f.type === 'model') {
+      input = document.createElement('select');
+      // Immediate options: placeholder + any saved value, then fill from the API.
+      input.innerHTML = '<option value="">Loading models…</option>';
+      if (value) input.add(new Option(value, value, true, true));
+      fillModelOptions(input, value);
+    } else if (f.type === 'select') {
+      input = document.createElement('select');
+      input.innerHTML = '<option value="">—</option>' + f.options.map((o) => `<option value="${o}">${o}</option>`).join('');
+    } else {
+      input = document.createElement('input'); input.type = f.type;
+      if (f.step != null) input.step = f.step;
+      if (f.min != null) input.min = f.min;
+      if (f.max != null) input.max = f.max;
+    }
+    input.id = 'cfgf-' + f.key;
+    input.className = base;
+    input.dataset.key = f.key;
+    input.dataset.ftype = f.type;
+    if (f.placeholder) input.placeholder = f.placeholder;
+    if (value != null) input.value = value;
+    wrap.append(label, input);
+    return wrap;
+  }
+
+  function renderCfgFields(node) {
+    const fields = CONFIG_FIELDS[node.node_type] || [];
+    if (!fields.length) {
+      cfgFields.innerHTML = '<p class="text-sm text-neutral-400 dark:text-neutral-500">This node type has no extra settings.</p>';
+      return;
+    }
+    cfgFields.replaceChildren(...fields.map((f) => fieldInput(f, node.config?.[f.key])));
+  }
+
+  function openConfig(id) {
+    const node = bNodes.find((n) => n.id === id);
+    if (!node) return;
+    cfgNodeId = id;
+    const t = NODE_TYPES[node.node_type] || { label: node.node_type, accent: '#64748b' };
+    cfgIcon.style.background = t.accent;
+    cfgIcon.innerHTML = iconSvg(node.node_type, 'h-[18px] w-[18px]');
+    cfgType.textContent = t.label;
+    cfgName.value = node.name || '';
+    setCfgError('');
+    renderCfgFields(node);
+    cfgBackdrop.classList.remove('hidden');
+    cfgPanel.classList.remove('translate-x-full');
+    cfgPanel.setAttribute('aria-hidden', 'false');
+    cfgName.focus();
+  }
+
+  function closeConfig() {
+    cfgPanel.classList.add('translate-x-full');
+    cfgPanel.setAttribute('aria-hidden', 'true');
+    cfgBackdrop.classList.add('hidden');
+    cfgNodeId = null;
+  }
+
+  function collectConfig() {
+    const config = {};
+    cfgFields.querySelectorAll('[data-key]').forEach((el) => {
+      let v = el.value;
+      if (el.dataset.ftype === 'number') { if (v === '') return; v = Number(v); if (Number.isNaN(v)) return; }
+      else { v = v.trim(); if (v === '') return; }
+      config[el.dataset.key] = v;
+    });
+    return config;
+  }
+
+  cfgForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!bp || !cfgNodeId) return;
+    const node = bNodes.find((n) => n.id === cfgNodeId);
+    if (!node) return;
+    const submit = cfgForm.querySelector('button[type="submit"]');
+    submit.disabled = true; setCfgError('');
+    const body = {
+      name: (cfgName.value.trim() || NODE_TYPES[node.node_type]?.label || node.node_type).slice(0, 16),
+      config: collectConfig(),
+    };
+    try {
+      const updated = await api(`/nodes/${bp.id}/${cfgNodeId}`, { method: 'PATCH', body });
+      node.name = updated.name;
+      node.config = updated.config || {};
+      renderBuilder();
+      closeConfig();
+    } catch (err) {
+      setCfgError(err.message);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  cfgDelete.addEventListener('click', () => { const id = cfgNodeId; closeConfig(); if (id) removeNode(id); });
+  document.getElementById('cfg-close').addEventListener('click', closeConfig);
+  cfgBackdrop.addEventListener('click', closeConfig);
+
+  // Delete pipeline from the builder.
+  builderDelete.addEventListener('click', async () => {
+    if (!bp) return;
+    if (!confirm(`Delete "${bp.name}"? This can't be undone.`)) return;
+    builderDelete.disabled = true;
+    try {
+      await api(`/pipelines/${bp.id}`, { method: 'DELETE' });
+      try { localStorage.removeItem(layoutKey(bp.id)); } catch {}
+      pipelines = pipelines.filter((p) => p.id !== bp.id);
+      renderList();
+      closeBuilder();
+    } catch (err) {
+      builderStatus.textContent = err.message;
+    } finally {
+      builderDelete.disabled = false;
+    }
+  });
+
+  // Escape: close the config panel first, then the builder.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || panelOpen) return;
+    if (cfgNodeId) { closeConfig(); return; }
+    if (!builderEl.classList.contains('hidden')) closeBuilder();
+  });
+
+  // ── Go ────────────────────────────────────────────────────────────────
+  loadPipelines();
+</script>
 {% endblock %}
