@@ -9,7 +9,10 @@ from fastapi import (
 from .models import (
     TestCase,
     TestCaseNode,
+    TestCaseRun,
 )
+
+from .executor import run_test_case
 
 from .schemas import (
     TestCaseCreate,
@@ -22,6 +25,8 @@ from .schemas import (
     TestCaseNodeResponse,
     ListTestCaseNodes,
     ListTestCaseResponse,
+    TestCaseRunResponse,
+    ListTestCaseRunResponse,
 )
 
 from api.pipelines.models import Pipeline
@@ -305,3 +310,70 @@ def delete_test_case_node(
     node.deleted_at = datetime.now(UTC)
     db.commit()
     return {"message": "Node deleted"}
+
+
+@test_cases_router.post(
+    "/{pipeline_id}/{test_case_id}/runs", response_model=TestCaseRunResponse
+)
+async def run_test_case_endpoint(
+    request: Request,
+    pipeline_id: UUID,
+    test_case_id: UUID,
+    db: DbSession,
+    user: CurrentUser,
+):
+    """Run the pipeline and evaluate this test case's assertions against it."""
+    test_case = _get_owned_test_case(db, pipeline_id, test_case_id, user)
+
+    run = TestCaseRun(test_case_id=test_case.id)
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    run = await run_test_case(db, run, test_case)
+    return TestCaseRunResponse.model_validate(run)
+
+
+@test_cases_router.get(
+    "/{pipeline_id}/{test_case_id}/runs", response_model=ListTestCaseRunResponse
+)
+def list_test_case_runs(
+    request: Request,
+    pipeline_id: UUID,
+    test_case_id: UUID,
+    db: DbSession,
+    user: CurrentUser,
+):
+    _get_owned_test_case(db, pipeline_id, test_case_id, user)
+    runs = (
+        db.query(TestCaseRun)
+        .filter(TestCaseRun.test_case_id == test_case_id)
+        .order_by(TestCaseRun.created_at.desc())
+        .all()
+    )
+    return {"runs": runs}
+
+
+@test_cases_router.get(
+    "/{pipeline_id}/{test_case_id}/runs/{run_id}", response_model=TestCaseRunResponse
+)
+def get_test_case_run(
+    request: Request,
+    pipeline_id: UUID,
+    test_case_id: UUID,
+    run_id: UUID,
+    db: DbSession,
+    user: CurrentUser,
+):
+    _get_owned_test_case(db, pipeline_id, test_case_id, user)
+    run = (
+        db.query(TestCaseRun)
+        .filter(
+            TestCaseRun.id == run_id,
+            TestCaseRun.test_case_id == test_case_id,
+        )
+        .one_or_none()
+    )
+    if not run:
+        raise ResourceNotFoundException("Test case run")
+    return run

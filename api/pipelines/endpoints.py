@@ -15,8 +15,11 @@ from fastapi import (
 
 from .models import (
     Pipeline,
-    PipelineNode
+    PipelineNode,
+    PipelineRuns,
 )
+
+from .executor import run_pipeline
 
 from .schemas import (
     PipelineResponse,
@@ -27,6 +30,8 @@ from .schemas import (
     PipelineNodeUpdate,
     ListPipelineNodeResponse,
     ListPipelineResponse,
+    PipelineRunResponse,
+    ListPipelineRunResponse,
 )
 
 from api.common.security import (
@@ -70,11 +75,6 @@ _models_lock = asyncio.Lock()
 
 
 async def _get_models_cached():
-    """Return the gateway's model list, cached in-process for _MODELS_TTL.
-
-    A single lock prevents a stampede of upstream calls when the cache is cold,
-    and a stale entry is served if the gateway is momentarily unreachable.
-    """
     def fresh():
         return (
             _models_cache["data"] is not None
@@ -331,4 +331,62 @@ def delete_pipeline_node(
     node.deleted_at = datetime.now(UTC)
     db.commit()
     return {"message": "Node deleted"}
+
+
+@runs_router.post("/pipelines/{pipeline_id}", response_model=PipelineRunResponse)
+async def run_pipeline_endpoint(
+    request: Request,
+    pipeline_id: UUID,
+    db: DbSession,
+    user: CurrentUser,
+):
+    """Execute a pipeline synchronously and return the completed run."""
+    _get_owned_pipeline(db, pipeline_id, user)
+
+    run = PipelineRuns(pipeline_id=pipeline_id)
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    run = await run_pipeline(db, run, pipeline_id)
+    return PipelineRunResponse.model_validate(run)
+
+
+@runs_router.get("/pipelines/{pipeline_id}", response_model=ListPipelineRunResponse)
+def list_pipeline_runs(
+    request: Request,
+    pipeline_id: UUID,
+    db: DbSession,
+    user: CurrentUser,
+):
+    _get_owned_pipeline(db, pipeline_id, user)
+    runs = (
+        db.query(PipelineRuns)
+        .filter(PipelineRuns.pipeline_id == pipeline_id)
+        .order_by(PipelineRuns.created_at.desc())
+        .all()
+    )
+    return {"runs": runs}
+
+
+@runs_router.get("/pipelines/{pipeline_id}/{run_id}", response_model=PipelineRunResponse)
+def get_pipeline_run(
+    request: Request,
+    pipeline_id: UUID,
+    run_id: UUID,
+    db: DbSession,
+    user: CurrentUser,
+):
+    _get_owned_pipeline(db, pipeline_id, user)
+    run = (
+        db.query(PipelineRuns)
+        .filter(
+            PipelineRuns.id == run_id,
+            PipelineRuns.pipeline_id == pipeline_id,
+        )
+        .one_or_none()
+    )
+    if not run:
+        raise ResourceNotFoundException("Pipeline run")
+    return run
 

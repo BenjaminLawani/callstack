@@ -21,6 +21,7 @@ from api.pipelines.endpoints import (
     runs_router
 )
 from api.test_cases.endpoints import test_cases_router
+from api.metrics.endpoints import transcription_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -55,3 +56,4 @@ app.include_router(node_router)
 app.include_router(pipeline_router)
 app.include_router(runs_router)
 app.include_router(test_cases_router)
+app.include_router(transcription_router)

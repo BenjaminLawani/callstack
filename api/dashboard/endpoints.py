@@ -22,6 +22,10 @@ def pipelines_page(request: Request):
 def test_cases_page(request: Request):
     return templates.TemplateResponse(request, "test_cases.html")
 
+@dashboard_router.get("/transcribe")
+def transcribe_page(request: Request):
+    return templates.TemplateResponse(request, "transcriptions.html")
+
 @dashboard_router.get("/projects")
 def projects_page(request: Request):
     return templates.TemplateResponse(request, "projects.html")

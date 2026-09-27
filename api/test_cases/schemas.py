@@ -10,6 +10,8 @@ from typing import (
     Optional,
 )
 
+from api.common.enums import RunStatus
+
 class TestCaseNodeCreate(BaseModel):
     name: str = Field(max_length=16)
     description: Optional[str] = Field(default=None, max_length=32)
@@ -73,3 +75,20 @@ class ListTestCaseResponse(BaseModel):
 
 class ListTestCaseNodes(BaseModel):
     nodes: List[TestCaseNodeResponse]
+
+class TestCaseRunResponse(BaseModel):
+    id: UUID4
+    test_case_id: UUID4
+    pipeline_run_id: Optional[UUID4] = None
+    status: RunStatus
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    output: Optional[str] = None
+    results: List[dict]
+    error: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ListTestCaseRunResponse(BaseModel):
+    runs: List[TestCaseRunResponse]

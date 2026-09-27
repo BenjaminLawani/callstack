@@ -146,11 +146,32 @@
         <p id="builder-status" class="truncate text-xs text-neutral-400 dark:text-neutral-500">0 nodes</p>
       </div>
     </div>
-    <button type="button" id="builder-delete"
-            class="rounded-lg border border-red-200 dark:border-red-900/60 px-3 py-1.5 text-sm font-medium text-red-600 dark:text-red-400 transition hover:bg-red-50 dark:hover:bg-red-950/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 disabled:opacity-60">
-      Delete
-    </button>
+    <div class="flex items-center gap-2">
+      <button type="button" id="builder-run"
+              class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2 disabled:opacity-60">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.54.84l10.29-6.86a1 1 0 0 0 0-1.68L9.54 4.3A1 1 0 0 0 8 5.14Z" /></svg>
+        Run
+      </button>
+      <button type="button" id="builder-delete"
+              class="rounded-lg border border-red-200 dark:border-red-900/60 px-3 py-1.5 text-sm font-medium text-red-600 dark:text-red-400 transition hover:bg-red-50 dark:hover:bg-red-950/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 disabled:opacity-60">
+        Delete
+      </button>
+    </div>
   </header>
+
+  <!-- Run status strip -->
+  <div id="run-strip" class="hidden shrink-0 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-4 py-2.5">
+    <div class="flex items-center gap-3">
+      <span id="run-pill" class="inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium"></span>
+      <p id="run-summary" class="min-w-0 flex-1 truncate text-xs text-neutral-500 dark:text-neutral-400"></p>
+      <button type="button" id="run-detail-toggle" class="hidden shrink-0 text-xs font-medium text-primary hover:underline">Show detail</button>
+      <button type="button" id="run-strip-close" aria-label="Dismiss run result"
+              class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-neutral-400 transition hover:bg-neutral-200 dark:hover:bg-neutral-800 hover:text-neutral-600 dark:hover:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+    <div id="run-detail" class="hidden mt-2 max-h-56 space-y-1.5 overflow-y-auto"></div>
+  </div>
 
   <div class="flex min-h-0 flex-1 flex-col sm:flex-row">
     <!-- Palette -->
@@ -509,6 +530,7 @@
   async function openBuilder(pipeline) {
     bp = pipeline;
     selectedId = null;
+    document.getElementById('run-strip').classList.add('hidden');
     builderTitle.textContent = pipeline.name;
     builderStatus.textContent = 'Loading…';
     nodesLayer.replaceChildren();
@@ -869,6 +891,91 @@
     } finally {
       builderDelete.disabled = false;
     }
+  });
+
+  // ── Run pipeline ────────────────────────────────────────────────────────
+  const builderRun = document.getElementById('builder-run');
+  const runStrip = document.getElementById('run-strip');
+  const runPill = document.getElementById('run-pill');
+  const runSummary = document.getElementById('run-summary');
+  const runDetail = document.getElementById('run-detail');
+  const runDetailToggle = document.getElementById('run-detail-toggle');
+
+  const RUN_PILL = {
+    running: 'bg-neutral-200 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 animate-pulse',
+    passed:  'bg-green-100 text-green-700 dark:bg-green-950/60 dark:text-green-400',
+    failed:  'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400',
+    error:   'bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-400',
+  };
+
+  function setRunPill(status) {
+    runPill.className = 'inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium '
+      + (RUN_PILL[status] || RUN_PILL.running);
+    runPill.textContent = status;
+  }
+
+  function nodeResultRow(n) {
+    const row = document.createElement('div');
+    row.className = 'rounded-md border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-3 py-2 text-xs';
+    let state = '';
+    if (n.skipped) state = '<span class="text-neutral-400 dark:text-neutral-500">skipped</span>';
+    else if ('passed' in n) state = n.passed
+      ? '<span class="text-green-600 dark:text-green-400">pass</span>'
+      : '<span class="text-red-600 dark:text-red-400">fail</span>';
+    const body = n.output != null ? n.output : (n.detail || '');
+    row.innerHTML =
+      `<div class="flex items-center justify-between gap-2">
+         <span class="truncate font-medium text-neutral-700 dark:text-neutral-200">${escapeHtml(n.name || n.node_type)}</span>
+         <span class="shrink-0">${state}</span>
+       </div>`
+      + (body ? `<p class="mt-1 whitespace-pre-wrap break-words text-neutral-500 dark:text-neutral-400">${escapeHtml(body)}</p>` : '');
+    return row;
+  }
+
+  function renderRun(run) {
+    setRunPill(run.status);
+    runSummary.textContent = run.status === 'error'
+      ? (run.error || 'Run failed to execute.')
+      : (run.output || '(no output)');
+    const items = run.node_results || [];
+    runDetail.replaceChildren(...items.map(nodeResultRow));
+    runDetailToggle.classList.toggle('hidden', items.length === 0);
+    runDetail.classList.add('hidden');
+    runDetailToggle.textContent = 'Show detail';
+  }
+
+  builderRun.addEventListener('click', async () => {
+    if (!bp) return;
+    runStrip.classList.remove('hidden');
+    if (!bNodes.length) {
+      setRunPill('error');
+      runSummary.textContent = 'Add at least one node before running.';
+      runDetail.classList.add('hidden');
+      runDetailToggle.classList.add('hidden');
+      return;
+    }
+    builderRun.disabled = true;
+    setRunPill('running');
+    runSummary.textContent = 'Running…';
+    runDetail.classList.add('hidden');
+    runDetailToggle.classList.add('hidden');
+    try {
+      const run = await api(`/runs/pipelines/${bp.id}`, { method: 'POST' });
+      renderRun(run);
+    } catch (err) {
+      setRunPill('error');
+      runSummary.textContent = err.message;
+    } finally {
+      builderRun.disabled = false;
+    }
+  });
+
+  runDetailToggle.addEventListener('click', () => {
+    const hidden = runDetail.classList.toggle('hidden');
+    runDetailToggle.textContent = hidden ? 'Show detail' : 'Hide detail';
+  });
+  document.getElementById('run-strip-close').addEventListener('click', () => {
+    runStrip.classList.add('hidden');
   });
 
   // Escape: close the config panel first, then the builder.

@@ -11,7 +11,7 @@ from pydantic import (
     Field,
 )
 
-from api.common.enums import PipelineNodeType
+from api.common.enums import PipelineNodeType, RunStatus
 
 class PipelineNodeCreate(BaseModel):
     name: str
@@ -62,3 +62,19 @@ class PipelineResponse(BaseModel):
 
 class ListPipelineResponse(BaseModel):
     pipelines: List[PipelineResponse]
+
+class PipelineRunResponse(BaseModel):
+    id: UUID4
+    pipeline_id: UUID4
+    status: RunStatus
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    output: Optional[str] = None
+    node_results: List[dict]
+    error: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ListPipelineRunResponse(BaseModel):
+    runs: List[PipelineRunResponse]

@@ -26,4 +26,9 @@ class Settings(BaseSettings):
     R2_BUCKET_NAME: str = os.environ["R2_BUCKET_NAME"]
     R2_PUBLIC_URL: str = os.environ["R2_PUBLIC_URL"]
 
+    ASSEMBLYAI_API_KEY: str = os.environ["ASSEMBLYAI_API_KEY"]
+    LLM_GATEWAY_URL: str = os.environ.get(
+        "LLM_GATEWAY_URL", "https://llm-gateway.assemblyai.com/v1"
+    )
+
 settings = Settings()

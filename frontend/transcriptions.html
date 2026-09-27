@@ -1,0 +1,402 @@
+{% extends "_app.html" %}
+{% set active = 'transcribe' %}
+{% block title %}Transcribe · callstack{% endblock %}
+
+{% block content %}
+<div class="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6">
+
+  <!-- Header -->
+  <div class="max-w-2xl">
+    <h1 class="text-2xl font-semibold tracking-tight">Transcribe</h1>
+    <p class="mt-2 text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">
+      Upload an audio file, say what a valid transcript must contain, and measure the
+      latency — including <span class="font-medium text-neutral-700 dark:text-neutral-300">time to first token</span>.
+    </p>
+  </div>
+
+  <div class="mt-8 grid gap-6 lg:grid-cols-5">
+
+    <!-- ───────── Form ───────── -->
+    <form id="tx-form" class="lg:col-span-2 space-y-5">
+
+      <!-- Audio source -->
+      <div class="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
+        <label class="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Audio</label>
+
+        <!-- Drop zone -->
+        <label id="drop" for="file"
+               class="mt-2 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 px-4 py-6 text-center transition hover:border-primary hover:bg-primary/5">
+          <svg class="h-6 w-6 text-neutral-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+          </svg>
+          <span id="drop-text" class="mt-2 text-sm text-neutral-600 dark:text-neutral-300">Drop an audio file or <span class="font-medium text-primary">browse</span></span>
+          <span class="mt-1 text-xs text-neutral-400">WAV, MP3, M4A, FLAC, OGG, WEBM — up to 100 MB</span>
+        </label>
+        <input id="file" type="file" accept="audio/*" class="hidden" />
+
+        <!-- Or URL -->
+        <div class="mt-3">
+          <div class="flex items-center gap-2 text-xs text-neutral-400">
+            <div class="h-px flex-1 bg-neutral-200 dark:bg-neutral-800"></div>
+            or paste a public URL
+            <div class="h-px flex-1 bg-neutral-200 dark:bg-neutral-800"></div>
+          </div>
+          <input id="audio-url" type="url" placeholder="https://…/clip.wav"
+                 class="mt-2 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary-ring" />
+        </div>
+        <p id="upload-status" class="mt-2 hidden text-xs text-neutral-500 dark:text-neutral-400"></p>
+      </div>
+
+      <!-- Options -->
+      <div class="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
+        <label class="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Options</label>
+        <div class="mt-2 grid grid-cols-2 gap-3">
+          <div>
+            <span class="text-xs text-neutral-500 dark:text-neutral-400">Mode</span>
+            <select id="mode"
+                    class="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary-ring">
+              <option value="streaming">Streaming (time to first token)</option>
+              <option value="batch">Batch (pre-recorded)</option>
+            </select>
+          </div>
+          <div>
+            <span class="text-xs text-neutral-500 dark:text-neutral-400">Speech model</span>
+            <input id="speech-model" type="text" placeholder="default"
+                   class="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary-ring" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Validation -->
+      <div class="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
+        <label class="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Valid transcript</label>
+        <p class="mt-1 text-xs text-neutral-400">Leave blank to skip validation.</p>
+        <div class="mt-3 space-y-2.5">
+          <label class="block">
+            <span class="text-xs text-neutral-500 dark:text-neutral-400">Must contain</span>
+            <input id="a-contains" type="text" placeholder="e.g. order number"
+                   class="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary-ring" />
+          </label>
+          <label class="block">
+            <span class="text-xs text-neutral-500 dark:text-neutral-400">Must not contain</span>
+            <input id="a-not-contains" type="text" placeholder="e.g. profanity"
+                   class="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary-ring" />
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="block">
+              <span class="text-xs text-neutral-500 dark:text-neutral-400">Min length</span>
+              <input id="a-min-length" type="number" min="0" placeholder="—"
+                     class="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary-ring" />
+            </label>
+            <label class="block">
+              <span class="text-xs text-neutral-500 dark:text-neutral-400">Regex match</span>
+              <input id="a-regex" type="text" placeholder="—"
+                     class="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary-ring" />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <button id="run" type="submit"
+              class="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
+        Transcribe
+      </button>
+      <p id="form-error" class="hidden text-sm text-red-600 dark:text-red-400" role="alert"></p>
+    </form>
+
+    <!-- ───────── Result ───────── -->
+    <div class="lg:col-span-3">
+
+      <!-- Idle -->
+      <div id="result-idle" class="flex h-full min-h-[300px] flex-col items-center justify-center rounded-xl border border-dashed border-neutral-200 dark:border-neutral-800 text-center">
+        <p class="text-sm font-medium text-neutral-700 dark:text-neutral-300">No transcription yet</p>
+        <p class="mt-1 max-w-xs text-sm text-neutral-400">Pick an audio file and press Transcribe to see the transcript and its metrics.</p>
+      </div>
+
+      <!-- Running -->
+      <div id="result-running" class="hidden h-full min-h-[300px] flex-col items-center justify-center rounded-xl border border-neutral-200 dark:border-neutral-800 text-center">
+        <svg class="h-6 w-6 animate-spin text-primary" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <p class="mt-3 text-sm text-neutral-500 dark:text-neutral-400">Transcribing… streaming runs take about the length of the audio.</p>
+      </div>
+
+      <!-- Result -->
+      <div id="result" class="hidden space-y-4">
+        <!-- Verdict + metrics -->
+        <div class="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
+          <div class="flex items-center justify-between">
+            <span id="verdict" class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"></span>
+            <span id="r-mode" class="text-xs uppercase tracking-wide text-neutral-400"></span>
+          </div>
+          <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div class="rounded-lg bg-primary/5 dark:bg-primary/10 p-3">
+              <p class="text-xs text-neutral-500 dark:text-neutral-400">Time to first token</p>
+              <p id="m-ttft" class="mt-0.5 text-xl font-semibold text-primary">—</p>
+            </div>
+            <div class="rounded-lg bg-neutral-50 dark:bg-neutral-800/60 p-3">
+              <p class="text-xs text-neutral-500 dark:text-neutral-400">Total latency</p>
+              <p id="m-total" class="mt-0.5 text-xl font-semibold">—</p>
+            </div>
+            <div class="rounded-lg bg-neutral-50 dark:bg-neutral-800/60 p-3">
+              <p class="text-xs text-neutral-500 dark:text-neutral-400">Audio duration</p>
+              <p id="m-audio" class="mt-0.5 text-xl font-semibold">—</p>
+            </div>
+            <div class="rounded-lg bg-neutral-50 dark:bg-neutral-800/60 p-3">
+              <p class="text-xs text-neutral-500 dark:text-neutral-400">Real-time factor</p>
+              <p id="m-rtf" class="mt-0.5 text-xl font-semibold">—</p>
+            </div>
+            <div class="rounded-lg bg-neutral-50 dark:bg-neutral-800/60 p-3">
+              <p class="text-xs text-neutral-500 dark:text-neutral-400">Words</p>
+              <p id="m-words" class="mt-0.5 text-xl font-semibold">—</p>
+            </div>
+            <div class="rounded-lg bg-neutral-50 dark:bg-neutral-800/60 p-3">
+              <p class="text-xs text-neutral-500 dark:text-neutral-400">Confidence</p>
+              <p id="m-conf" class="mt-0.5 text-xl font-semibold">—</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Transcript -->
+        <div class="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
+          <p class="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Transcript</p>
+          <p id="r-transcript" class="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-neutral-800 dark:text-neutral-200"></p>
+        </div>
+
+        <!-- Checks -->
+        <div id="r-checks-wrap" class="hidden rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
+          <p class="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Assertions</p>
+          <ul id="r-checks" class="mt-2 space-y-1.5"></ul>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div id="result-error" class="hidden rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-4">
+        <p class="text-sm font-medium text-red-700 dark:text-red-300">Transcription failed</p>
+        <p id="result-error-msg" class="mt-1 text-sm text-red-600 dark:text-red-400"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── Recent ───────── -->
+  <div class="mt-12">
+    <h2 class="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Recent</h2>
+    <div id="recent" class="mt-3 divide-y divide-neutral-100 dark:divide-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-800"></div>
+    <p id="recent-empty" class="mt-3 hidden text-sm text-neutral-400">Nothing yet.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  // Infer a content type when the browser doesn't provide one (some .wav/.flac).
+  const EXT_MIME = {
+    wav: 'audio/wav', mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac',
+    ogg: 'audio/ogg', oga: 'audio/ogg', webm: 'audio/webm', flac: 'audio/flac',
+    aiff: 'audio/aiff', aif: 'audio/aiff',
+  };
+
+  let selectedFile = null;
+
+  const fmtMs = (v) => v == null ? '—' : (v < 1000 ? `${v} ms` : `${(v / 1000).toFixed(2)} s`);
+  const fmtPct = (v) => v == null ? '—' : `${Math.round(v * 100)}%`;
+
+  // ── File selection ──────────────────────────────────────────────────────
+  function setFile(file) {
+    selectedFile = file;
+    // Only a real file selection supersedes a pasted URL; clearing the file
+    // (setFile(null)) must leave whatever the user typed in the URL box alone.
+    if (file) $('audio-url').value = '';
+    $('drop-text').innerHTML = file
+      ? `<span class="font-medium">${file.name}</span> · ${(file.size / 1048576).toFixed(1)} MB`
+      : 'Drop an audio file or <span class="font-medium text-primary">browse</span>';
+  }
+
+  $('file').addEventListener('change', (e) => setFile(e.target.files[0] || null));
+
+  const drop = $('drop');
+  ['dragover', 'dragenter'].forEach((ev) => drop.addEventListener(ev, (e) => {
+    e.preventDefault(); drop.classList.add('border-primary', 'bg-primary/5');
+  }));
+  ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => {
+    e.preventDefault(); drop.classList.remove('border-primary', 'bg-primary/5');
+  }));
+  drop.addEventListener('drop', (e) => {
+    const file = e.dataTransfer.files[0];
+    if (file) setFile(file);
+  });
+  $('audio-url').addEventListener('input', () => { if ($('audio-url').value) setFile(null); });
+
+  // ── Upload to R2 via presigned PUT, return the public URL ────────────────
+  async function uploadSelectedFile() {
+    const ct = selectedFile.type || EXT_MIME[selectedFile.name.split('.').pop().toLowerCase()] || '';
+    if (!ct) throw new Error('Unsupported audio type.');
+
+    $('upload-status').classList.remove('hidden');
+    $('upload-status').textContent = 'Uploading…';
+
+    const { upload_url, public_url } = await api('/transcriptions/audio-upload', {
+      method: 'POST', body: { content_type: ct },
+    });
+
+    const put = await fetch(upload_url, {
+      method: 'PUT', headers: { 'Content-Type': ct }, body: selectedFile,
+    });
+    if (!put.ok) throw new Error('Upload failed. Check the file, or paste a public URL instead.');
+
+    $('upload-status').textContent = 'Uploaded.';
+    return public_url;
+  }
+
+  // ── Build the assertion spec from the form ───────────────────────────────
+  function buildAssertions() {
+    const spec = {};
+    const contains = $('a-contains').value.trim();
+    const notContains = $('a-not-contains').value.trim();
+    const minLen = $('a-min-length').value.trim();
+    const regex = $('a-regex').value.trim();
+    if (contains) spec.contains = contains;
+    if (notContains) spec.not_contains = notContains;
+    if (minLen) spec.min_length = Number(minLen);
+    if (regex) spec.regex = regex;
+    return Object.keys(spec).length ? spec : null;
+  }
+
+  // ── Render a result / metric object ──────────────────────────────────────
+  function showResult(m) {
+    ['result-idle', 'result-running', 'result-error'].forEach((id) => $(id).classList.add('hidden'));
+
+    if (m.error) {
+      $('result').classList.add('hidden');
+      $('result-error').classList.remove('hidden');
+      $('result-error-msg').textContent = m.error;
+      return;
+    }
+
+    $('result').classList.remove('hidden');
+    $('r-mode').textContent = m.mode || '';
+    $('m-ttft').textContent = fmtMs(m.ttft_ms);
+    $('m-total').textContent = fmtMs(m.total_ms);
+    $('m-audio').textContent = fmtMs(m.audio_duration_ms);
+    $('m-rtf').textContent = m.real_time_factor == null ? '—' : `${m.real_time_factor}×`;
+    $('m-words').textContent = m.word_count ?? '—';
+    $('m-conf').textContent = fmtPct(m.confidence);
+    $('r-transcript').textContent = m.transcript || '(empty)';
+
+    // Verdict badge
+    const v = $('verdict');
+    if (m.valid === true) {
+      v.className = 'inline-flex items-center gap-1.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300';
+      v.textContent = '✓ Valid';
+    } else if (m.valid === false) {
+      v.className = 'inline-flex items-center gap-1.5 rounded-full bg-red-100 dark:bg-red-900/40 px-2.5 py-1 text-xs font-semibold text-red-700 dark:text-red-300';
+      v.textContent = '✕ Invalid';
+    } else {
+      v.className = 'inline-flex items-center gap-1.5 rounded-full bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400';
+      v.textContent = 'No assertions';
+    }
+
+    // Checks
+    const checks = m.checks || [];
+    const meaningful = checks.filter((c) => c.op !== 'noop');
+    if (meaningful.length) {
+      $('r-checks-wrap').classList.remove('hidden');
+      $('r-checks').innerHTML = meaningful.map((c) => `
+        <li class="flex items-start gap-2 text-sm">
+          <span class="${c.passed ? 'text-emerald-600' : 'text-red-600'}">${c.passed ? '✓' : '✕'}</span>
+          <span class="text-neutral-600 dark:text-neutral-300">
+            <span class="font-mono text-xs">${c.op}</span>
+            ${c.expected != null ? `: <span class="text-neutral-800 dark:text-neutral-200">${String(c.expected).replace(/</g, '&lt;')}</span>` : ''}
+            ${c.detail ? `<span class="text-red-500"> — ${c.detail}</span>` : ''}
+          </span>
+        </li>`).join('');
+    } else {
+      $('r-checks-wrap').classList.add('hidden');
+    }
+  }
+
+  // ── Submit ───────────────────────────────────────────────────────────────
+  $('tx-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('form-error').classList.add('hidden');
+
+    let audioUrl = $('audio-url').value.trim();
+    if (!audioUrl && !selectedFile) {
+      $('form-error').textContent = 'Choose an audio file or paste a URL.';
+      $('form-error').classList.remove('hidden');
+      return;
+    }
+
+    $('run').disabled = true;
+    $('result-idle').classList.add('hidden');
+    $('result').classList.add('hidden');
+    $('result-error').classList.add('hidden');
+    $('result-running').classList.remove('hidden');
+    $('result-running').classList.add('flex');
+
+    try {
+      if (!audioUrl) audioUrl = await uploadSelectedFile();
+
+      const body = {
+        audio_url: audioUrl,
+        mode: $('mode').value,
+        speech_model: $('speech-model').value.trim() || null,
+      };
+      const assertions = buildAssertions();
+      if (assertions) body.assertions = assertions;
+
+      const metric = await api('/transcriptions/', { method: 'POST', body });
+      showResult(metric);
+      loadRecent();
+    } catch (err) {
+      $('result-running').classList.add('hidden');
+      $('result-running').classList.remove('flex');
+      $('result-error').classList.remove('hidden');
+      $('result-error-msg').textContent = err.message || 'Something went wrong.';
+    } finally {
+      $('result-running').classList.remove('flex');
+      $('run').disabled = false;
+      $('upload-status').classList.add('hidden');
+    }
+  });
+
+  // ── Recent list ──────────────────────────────────────────────────────────
+  async function loadRecent() {
+    try {
+      const { metrics } = await api('/transcriptions/?limit=10');
+      const box = $('recent');
+      if (!metrics.length) {
+        box.innerHTML = '';
+        $('recent-empty').classList.remove('hidden');
+        return;
+      }
+      $('recent-empty').classList.add('hidden');
+      box.innerHTML = metrics.map((m) => {
+        const badge = m.error
+          ? '<span class="text-xs font-medium text-red-500">error</span>'
+          : m.valid === true ? '<span class="text-xs font-medium text-emerald-600">valid</span>'
+          : m.valid === false ? '<span class="text-xs font-medium text-red-500">invalid</span>'
+          : '<span class="text-xs text-neutral-400">—</span>';
+        const snippet = (m.transcript || m.error || '').slice(0, 80).replace(/</g, '&lt;');
+        return `
+          <button type="button" data-id="${m.id}" class="recent-row flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
+            <span class="w-16 shrink-0 text-sm font-semibold ${m.error ? 'text-neutral-300' : 'text-primary'}">${m.ttft_ms != null ? m.ttft_ms + ' ms' : '—'}</span>
+            <span class="min-w-0 flex-1 truncate text-sm text-neutral-600 dark:text-neutral-300">${snippet || '(empty)'}</span>
+            <span class="shrink-0 text-xs uppercase text-neutral-400">${m.mode}</span>
+            ${badge}
+          </button>`;
+      }).join('');
+      box.querySelectorAll('.recent-row').forEach((row) => row.addEventListener('click', async () => {
+        const m = await api(`/transcriptions/${row.dataset.id}`);
+        showResult(m);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }));
+    } catch { /* non-fatal */ }
+  }
+
+  loadRecent();
+</script>
+{% endblock %}
