@@ -18,15 +18,12 @@ RUN apt-get update \
 WORKDIR /app
 
 # Install dependencies first (cached layer) using only the lock + manifest
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-project --no-dev
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev
 
 # Then add the project source and install it
 COPY . /app
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev
 
 # ---- Runtime: slim image with just the venv + libpq ----
 FROM python:3.12-slim-bookworm
