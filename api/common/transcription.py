@@ -48,6 +48,34 @@ _BATCH_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 _BATCH_MAX_WAIT = 600.0  # give up polling after 10 minutes
 
 
+# Curated catalogue of AssemblyAI speech ("voice") models a voice node can use as
+# its ``speech_model``. Unlike the LLM gateway (``/v1/models``), AssemblyAI has no
+# REST endpoint that enumerates its speech-to-text models, so this list is the
+# single source of truth — edit it here when AssemblyAI changes its lineup and the
+# voice-node dropdown updates automatically.
+# Docs: https://www.assemblyai.com/docs/getting-started/models
+VOICE_MODELS: list[dict] = [
+    {
+        "name": "universal-3.5-pro",
+        "label": "Universal 3.5 Pro",
+        "description": "Highest accuracy and fastest; 18 languages with native code-switching.",
+        "languages": "18 languages",
+    },
+    {
+        "name": "universal-2",
+        "label": "Universal 2",
+        "description": "Accurate, cost-effective transcription across 99 languages.",
+        "languages": "99 languages",
+    },
+    {
+        "name": "slam-1",
+        "label": "Slam-1",
+        "description": "Prompt-based speech language model; English only, most steerable.",
+        "languages": "English",
+    },
+]
+
+
 class TranscriptionError(RuntimeError):
     """Transcription could not be produced (decode, network, or provider error)."""
 

@@ -41,6 +41,7 @@ from api.common.security import (
 
 from api.common.enums import PipelineNodeType
 from api.common.storage import *
+from api.common.transcription import VOICE_MODELS
 from api.common.exceptions import (
     InternalServerErrorException,
     ResourceConflictEzception,
@@ -150,6 +151,17 @@ async def get_models(
             "total_pages": (total + limit - 1) // limit,
         },
     }
+
+
+@model_router.get("/voice")
+def get_voice_models(request: Request, user: CurrentUser):
+    """AssemblyAI speech models a ``voice`` node can pick as its ``speech_model``.
+
+    AssemblyAI exposes no endpoint that lists speech-to-text models (only the LLM
+    gateway lists chat models), so this serves the curated ``VOICE_MODELS`` list.
+    """
+    return {"data": VOICE_MODELS}
+
 
 @pipeline_router.post("/{project_id}", response_model=PipelineResponse)
 def create_pipeline(

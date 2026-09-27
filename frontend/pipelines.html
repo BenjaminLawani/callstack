@@ -266,8 +266,9 @@
       { key: 'temperature', label: 'Temperature',   type: 'number',   step: '0.1', min: 0, max: 2, placeholder: '0.7' },
     ],
     voice: [
-      { key: 'voice',    label: 'Voice',    type: 'text', placeholder: 'e.g. alloy' },
-      { key: 'language', label: 'Language', type: 'text', placeholder: 'e.g. en' },
+      { key: 'audio_url',    label: 'Audio URL',    type: 'text', placeholder: 'https://… public audio file' },
+      { key: 'speech_model', label: 'Speech model', type: 'voice-model' },
+      { key: 'mode',         label: 'Mode',         type: 'select', options: ['streaming', 'batch'] },
     ],
     assert: [
       { key: 'kind',     label: 'Assertion', type: 'select', options: ['contains', 'not_contains', 'equals', 'regex'] },
@@ -319,6 +320,42 @@
       const models = await loadModels();
       select.innerHTML = '<option value="">Select a model…</option>' +
         models.map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)} — ${modelCost(m)}</option>`).join('');
+      // Keep a previously-saved model selectable even if it's no longer listed.
+      if (cur && !models.some((m) => m.name === cur)) {
+        select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(cur)}">${escapeHtml(cur)}</option>`);
+      }
+      select.value = cur;
+    } catch {
+      // Leave the fallback options (placeholder + current value) in place.
+    }
+  }
+
+  // ── Voice models (AssemblyAI speech models, from GET /models/voice) ────────
+  let voiceModelsCache = null;
+  let voiceModelsPromise = null;
+  async function loadVoiceModels() {
+    if (voiceModelsCache) return voiceModelsCache;
+    if (!voiceModelsPromise) {
+      voiceModelsPromise = (async () => {
+        const res = await api('/models/voice');
+        voiceModelsCache = (res.data || []).map((m) => ({
+          name: m.name, label: m.label || m.name, description: m.description || '',
+        }));
+        return voiceModelsCache;
+      })().catch((err) => { voiceModelsPromise = null; throw err; });
+    }
+    return voiceModelsPromise;
+  }
+
+  async function fillVoiceModelOptions(select, current) {
+    const cur = current || '';
+    try {
+      const models = await loadVoiceModels();
+      select.innerHTML = '<option value="">AssemblyAI default</option>' +
+        models.map((m) => {
+          const detail = m.description ? ` — ${escapeHtml(m.description)}` : '';
+          return `<option value="${escapeHtml(m.name)}">${escapeHtml(m.label)}${detail}</option>`;
+        }).join('');
       // Keep a previously-saved model selectable even if it's no longer listed.
       if (cur && !models.some((m) => m.name === cur)) {
         select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(cur)}">${escapeHtml(cur)}</option>`);
@@ -784,6 +821,12 @@
       input.innerHTML = '<option value="">Loading models…</option>';
       if (value) input.add(new Option(value, value, true, true));
       fillModelOptions(input, value);
+    } else if (f.type === 'voice-model') {
+      input = document.createElement('select');
+      // Immediate options: placeholder + any saved value, then fill from the API.
+      input.innerHTML = '<option value="">Loading models…</option>';
+      if (value) input.add(new Option(value, value, true, true));
+      fillVoiceModelOptions(input, value);
     } else if (f.type === 'select') {
       input = document.createElement('select');
       input.innerHTML = '<option value="">—</option>' + f.options.map((o) => `<option value="${o}">${o}</option>`).join('');
