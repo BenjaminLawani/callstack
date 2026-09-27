@@ -2,7 +2,7 @@ from datetime import datetime, UTC
 
 from api.common.enums import PipelineNodeType, RunStatus
 from api.common.assertions import evaluate_assertions
-from api.common.llm_gateway import chat_completion, LLMGatewayError
+from api.common.llm_gateway import chat_completion, is_model_available, LLMGatewayError
 from api.common.transcription import (
     TranscriptionError,
     transcribe,
@@ -34,6 +34,10 @@ async def _run_llm_node(node: PipelineNode, current_output: str) -> str:
     model = config.get("model")
     if not model:
         raise PipelineExecutionError(f"node '{node.name}' is missing config.model")
+    if not is_model_available(model):
+        raise PipelineExecutionError(
+            f"node '{node.name}' uses model '{model}', which is not available yet"
+        )
 
     prompt_template = config.get("prompt", "{input}")
     prompt = prompt_template.replace("{input}", current_output)

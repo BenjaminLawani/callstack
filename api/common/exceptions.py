@@ -28,3 +28,10 @@ class InternalServerErrorException(HTTPException):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
         )
+
+class UnavailableModelException(HTTPException):
+    def __init__(self, model: str):
+        super().__init__(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Model '{model}' is not available yet",
+        )

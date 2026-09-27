@@ -11,6 +11,16 @@ from .config import settings
 
 _TIMEOUT = httpx.Timeout(60.0, connect=10.0)
 
+# Chat models the product currently offers. The gateway lists many more, but
+# every other model is surfaced as "coming soon" and refused when a node tries
+# to run it. Add a name here to turn a model on across the API and frontend.
+AVAILABLE_MODELS = {"qwen3.5-4b-32k-fast"}
+
+
+def is_model_available(model: str) -> bool:
+    """True if ``model`` is one the product currently lets pipelines run."""
+    return model in AVAILABLE_MODELS
+
 
 class LLMGatewayError(RuntimeError):
     """Raised when the gateway returns an error or an unexpected payload."""

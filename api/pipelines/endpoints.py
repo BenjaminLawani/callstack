@@ -42,10 +42,12 @@ from api.common.security import (
 from api.common.enums import PipelineNodeType
 from api.common.storage import *
 from api.common.transcription import VOICE_MODELS
+from api.common.llm_gateway import AVAILABLE_MODELS, is_model_available
 from api.common.exceptions import (
     InternalServerErrorException,
     ResourceConflictEzception,
-    ResourceNotFoundException
+    ResourceNotFoundException,
+    UnavailableModelException,
 )
 
 runs_router = APIRouter(
@@ -73,6 +75,19 @@ _MODELS_URL = "https://llm-gateway.assemblyai.com/v1/models"
 _MODELS_TTL = 300  # seconds
 _models_cache = {"data": None, "at": 0.0}
 _models_lock = asyncio.Lock()
+
+
+def _validate_node_model(node_type: PipelineNodeType, config: dict | None) -> None:
+    """Reject an LLM node configured with a model that isn't available yet.
+
+    Only LLM nodes carry ``config.model``; a missing model is left to the
+    executor (which raises at run time). Everything else is a no-op.
+    """
+    if node_type != PipelineNodeType.LLM:
+        return
+    model = (config or {}).get("model")
+    if model and not is_model_available(model):
+        raise UnavailableModelException(model)
 
 
 async def _get_models_cached():
@@ -141,6 +156,7 @@ async def get_models(
                     "output": model["pricing"]["global"]["completions"],
                 },
                 "available_regions": model["available_regions"],
+                "available": model["name"] in AVAILABLE_MODELS,
             }
             for model in paginated_models
         ],
@@ -237,6 +253,7 @@ def create_node_in_pipeline(
     user: CurrentUser,
 ):
     _get_owned_pipeline(db, pipeline_id, user)
+    _validate_node_model(data.node_type, data.config)
     try:
         new_node = PipelineNode(**data.model_dump(exclude_unset=True))
         new_node.pipeline_id = pipeline_id
@@ -312,6 +329,9 @@ def update_pipeline_node(
     )
     if not node:
         raise ResourceNotFoundException("node")
+
+    if data.config is not None:
+        _validate_node_model(node.node_type, data.config)
 
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(node, key, value)
