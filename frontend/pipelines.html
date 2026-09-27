@@ -300,7 +300,8 @@
         let page = 1, pages = 1;
         do {
           const res = await api(`/models/?page=${page}&limit=100`);
-          (res.data || []).forEach((m) => out.push({ name: m.name, input: m.price?.input, output: m.price?.output, available: m.available !== false }));
+          // `id` is the value a node stores/runs; `name` is just the label.
+          (res.data || []).forEach((m) => out.push({ id: m.id || m.name, name: m.name, input: m.price?.input, output: m.price?.output, available: m.available !== false }));
           pages = res.pagination?.total_pages || 1;
           page += 1;
         } while (page <= pages);
@@ -323,12 +324,12 @@
       select.innerHTML = '<option value="">Select a model…</option>' +
         models.map((m) => {
           if (m.available) {
-            return `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)} — ${modelCost(m)}</option>`;
+            return `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)} — ${modelCost(m)}</option>`;
           }
-          return `<option value="${escapeHtml(m.name)}" disabled>${escapeHtml(m.name)} — coming soon</option>`;
+          return `<option value="${escapeHtml(m.id)}" disabled>${escapeHtml(m.name)} — coming soon</option>`;
         }).join('');
       // Keep a previously-saved model selectable even if it's no longer listed.
-      if (cur && !models.some((m) => m.name === cur)) {
+      if (cur && !models.some((m) => m.id === cur)) {
         select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(cur)}">${escapeHtml(cur)}</option>`);
       }
       select.value = cur;

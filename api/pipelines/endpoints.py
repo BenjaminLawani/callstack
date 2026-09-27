@@ -149,6 +149,9 @@ async def get_models(
     return {
         "data": [
             {
+                # ``id`` is what the completions API accepts and what a node
+                # stores as ``config.model``; ``name`` is only a display label.
+                "id": model["id"],
                 "name": model["name"],
                 "context_length": model["context_length"],
                 "price": {
@@ -156,7 +159,7 @@ async def get_models(
                     "output": model["pricing"]["global"]["completions"],
                 },
                 "available_regions": model["available_regions"],
-                "available": model["name"] in AVAILABLE_MODELS,
+                "available": model["id"] in AVAILABLE_MODELS,
             }
             for model in paginated_models
         ],
