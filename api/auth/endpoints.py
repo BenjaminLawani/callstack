@@ -7,6 +7,7 @@ from fastapi import (
     Depends,
     Request
 )
+from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_sso.sso.base import SSOLoginError
 
@@ -82,7 +83,7 @@ async def google_login(sso: GoogleSSODep):
     async with sso:
         return await sso.get_login_redirect()
 
-@auth_router.get("/google-callback", response_model=Token)
+@auth_router.get("/google-callback", include_in_schema=False)
 async def google_callback(
     request: Request,
     db: DbSession,
@@ -95,7 +96,7 @@ async def google_callback(
         raise InvalidCredentialsException()
     if openid is None or not openid.email:
         raise InvalidCredentialsException()
-    
+
     email = normalize_email(openid.email)
     db_user = db.query(User).filter(User.email == email).one_or_none()
     if db_user is None:
@@ -109,7 +110,19 @@ async def google_callback(
         db.refresh(db_user)
 
     tokens = issue_token_pair(str(db_user.id), db_user.email)
-    return Token(**tokens)
+    has_profile = (
+        db.query(UserProfile).filter_by(user_id=db_user.id).one_or_none() is not None
+    )
+    dest = "/home" if has_profile else "/onboarding"
+    # Tokens are passed in the URL fragment (never sent to the server, so they
+    # stay out of logs/history/Referer) and picked up by the /auth/complete page.
+    return RedirectResponse(
+        url=(
+            f"/auth/complete#access_token={tokens['access_token']}"
+            f"&refresh_token={tokens['refresh_token']}&next={dest}"
+        ),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 @auth_router.post("/get-started", response_model=UserCreateResponse)
 def get_started(

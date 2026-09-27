@@ -45,6 +45,10 @@ def login_page(request: Request):
 def onboarding_page(request: Request):
     return templates.TemplateResponse(request, "onboarding.html")
 
+@app.get("/auth/complete", include_in_schema=False)
+def auth_complete_page(request: Request):
+    return templates.TemplateResponse(request, "complete.html")
+
 app.mount("/assets", StaticFiles(directory=templates_path / "assets"), name="assets")
 
 app.include_router(auth_router)
