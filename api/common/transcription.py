@@ -42,6 +42,26 @@ _FRAME_BYTES = int(_BYTES_PER_SECOND * _FRAME_MS / 1000)  # 1600 bytes / 50 ms
 
 _DEFAULT_MAX_AUDIO_SECONDS = 300
 
+# AssemblyAI's batch (pre-recorded) and streaming (v3) APIs use *different* model
+# namespaces: ``universal-2`` is a batch model and is rejected by the streaming
+# endpoint, which has its own realtime lineup. A ``voice`` node carries a single
+# ``speech_model``, so when a run is streaming we only forward the model if it is
+# one the streaming API accepts — otherwise we let the streaming API pick its
+# default rather than fail the run on a batch-only name.
+# Docs: https://www.assemblyai.com/docs/speech-to-text/universal-streaming
+_STREAMING_MODELS = frozenset({
+    "universal-streaming-english",
+    "universal-streaming-multilingual",
+    "whisper-rt",
+    "u3-rt-pro",
+    "u3-rt-pro-beta-1",
+    "u3-rt-agent",
+    "universal-3-5-pro",
+    "universal-3-6-pro",
+    "universal-3-6",
+    "universal-3-7-preview",
+})
+
 _AAI_BASE_URL = "https://api.assemblyai.com/v2"
 _BATCH_POLL_INTERVAL = 1.0  # seconds between transcript status polls
 _BATCH_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
@@ -56,7 +76,7 @@ _BATCH_MAX_WAIT = 600.0  # give up polling after 10 minutes
 # Docs: https://www.assemblyai.com/docs/getting-started/models
 VOICE_MODELS: list[dict] = [
     {
-        "name": "universal-3.5-pro",
+        "name": "universal-3-5-pro",
         "label": "Universal 3.5 Pro",
         "description": "Highest accuracy and fastest; 18 languages with native code-switching.",
         "languages": "18 languages",
@@ -246,7 +266,10 @@ async def _transcribe_streaming(
         encoding=Encoding.pcm_s16le,
         format_turns=True,
     )
-    if speech_model:
+    # Only forward a model the streaming API actually accepts; a batch-only name
+    # (e.g. ``universal-2``) would otherwise fail the whole run. Unknown/omitted
+    # → the streaming API's own default.
+    if speech_model in _STREAMING_MODELS:
         params.speech_model = speech_model
 
     async def _frames():
@@ -311,7 +334,10 @@ async def _transcribe_batch(
     headers = {"Authorization": settings.ASSEMBLYAI_API_KEY}
     payload: dict = {"audio_url": audio_url}
     if speech_model:
-        payload["speech_model"] = speech_model
+        # AssemblyAI deprecated the singular ``speech_model`` param in favour of
+        # ``speech_models`` — a preference-ordered list. We take one model from
+        # node config, so send it as a single-element list.
+        payload["speech_models"] = [speech_model]
 
     started = time.perf_counter()
     try:
