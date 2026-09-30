@@ -4,6 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import (
     APIRouter,
     Request,
+    Query,
 )
 
 from .models import (
@@ -343,12 +344,14 @@ def list_test_case_runs(
     test_case_id: UUID,
     db: DbSession,
     user: CurrentUser,
+    limit: int = Query(20, ge=1, le=100),
 ):
     _get_owned_test_case(db, pipeline_id, test_case_id, user)
     runs = (
         db.query(TestCaseRun)
         .filter(TestCaseRun.test_case_id == test_case_id)
         .order_by(TestCaseRun.created_at.desc())
+        .limit(limit)
         .all()
     )
     return {"runs": runs}

@@ -25,6 +25,9 @@ RUN uv sync --frozen --no-install-project --no-dev
 COPY . /app
 RUN uv sync --frozen --no-dev
 
+# Dry-run the demo script (arg-parse / import smoke check; no network)
+RUN uv run python scripts/run_demo.py --help
+
 # ---- Runtime: slim image with just the venv + libpq ----
 FROM python:3.12-slim-bookworm
 
